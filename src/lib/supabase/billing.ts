@@ -3,10 +3,10 @@ import { createClient } from "./client";
 export const FREE_MONTHLY_LIMIT = 5;
 
 export interface UsageStatus {
-  subscriptionStatus: "free" | "pro";
+  subscriptionStatus: "free" | "pro" | "promo";
   monthlyCount: number;
   canCreate: boolean;
-  remainingFree: number; // Infinity for pro
+  remainingFree: number; // Infinity for pro/promo
 }
 
 export async function getUsageStatus(): Promise<UsageStatus> {
@@ -39,7 +39,7 @@ export async function getUsageStatus(): Promise<UsageStatus> {
     };
   }
 
-  const status = (data.subscription_status as "free" | "pro") ?? "free";
+  const status = (data.subscription_status as "free" | "pro" | "promo") ?? "free";
 
   // Check whether the monthly counter needs resetting
   const resetAt = new Date(data.quiz_count_reset_at as string);
@@ -61,9 +61,9 @@ export async function getUsageStatus(): Promise<UsageStatus> {
     count = 0;
   }
 
-  const canCreate = status === "pro" || count < FREE_MONTHLY_LIMIT;
-  const remainingFree =
-    status === "pro" ? Infinity : Math.max(0, FREE_MONTHLY_LIMIT - count);
+  const hasFullAccess = status === "pro" || status === "promo";
+  const canCreate = hasFullAccess || count < FREE_MONTHLY_LIMIT;
+  const remainingFree = hasFullAccess ? Infinity : Math.max(0, FREE_MONTHLY_LIMIT - count);
 
   return { subscriptionStatus: status, monthlyCount: count, canCreate, remainingFree };
 }

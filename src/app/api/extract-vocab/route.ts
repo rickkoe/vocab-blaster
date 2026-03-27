@@ -63,8 +63,8 @@ export async function POST(req: NextRequest) {
           count = 0;
         }
 
-        const isPro = (profile.subscription_status as string) === "pro";
-        if (!isPro && count >= FREE_MONTHLY_LIMIT) {
+        const hasFullAccess = ["pro", "promo"].includes(profile.subscription_status as string);
+        if (!hasFullAccess && count >= FREE_MONTHLY_LIMIT) {
           return NextResponse.json(
             {
               error: `You've used all ${FREE_MONTHLY_LIMIT} free quizzes this month. Upgrade to Pro for unlimited access.`,

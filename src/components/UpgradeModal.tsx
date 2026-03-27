@@ -14,6 +14,13 @@ interface Props {
 export default function UpgradeModal({ monthlyCount, onClose }: Props) {
   const [loading, setLoading] = useState<"monthly" | "yearly" | null>(null);
 
+  // Promo code state
+  const [showPromo, setShowPromo] = useState(false);
+  const [promoCode, setPromoCode] = useState("");
+  const [promoLoading, setPromoLoading] = useState(false);
+  const [promoError, setPromoError] = useState<string | null>(null);
+  const [promoSuccess, setPromoSuccess] = useState(false);
+
   const startCheckout = async (priceId: string, plan: "monthly" | "yearly") => {
     if (!priceId) {
       window.location.href = "/auth/login";
@@ -30,6 +37,28 @@ export default function UpgradeModal({ monthlyCount, onClose }: Props) {
       if (data.url) window.location.href = data.url;
     } finally {
       setLoading(null);
+    }
+  };
+
+  const redeemCode = async () => {
+    const code = promoCode.trim().toUpperCase();
+    if (!code) return;
+    setPromoLoading(true);
+    setPromoError(null);
+    try {
+      const res = await fetch("/api/redeem-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setPromoError(data.error ?? "Invalid code.");
+      } else {
+        setPromoSuccess(true);
+      }
+    } finally {
+      setPromoLoading(false);
     }
   };
 
@@ -165,7 +194,7 @@ export default function UpgradeModal({ monthlyCount, onClose }: Props) {
             onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--text)"; }}
             onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = "#777"; }}
           >
-            {loading === "yearly" ? "Redirecting..." : "$19.99 / year — save 37%"}
+            {loading === "yearly" ? "Redirecting..." : "$19.99 / year — save 16%"}
           </button>
           <button
             onClick={onClose}
@@ -184,6 +213,127 @@ export default function UpgradeModal({ monthlyCount, onClose }: Props) {
           >
             Maybe later
           </button>
+        </div>
+
+        {/* ── Promo code section ── */}
+        <div style={{
+          marginTop: "18px",
+          paddingTop: "16px",
+          borderTop: "1px solid rgba(255,255,255,0.07)",
+        }}>
+          {promoSuccess ? (
+            /* Success state */
+            <div style={{ textAlign: "center" }} className="animate-fade-up">
+              <div style={{ fontSize: "1.8em", marginBottom: "8px" }}>🎉</div>
+              <p style={{
+                fontFamily: "'Fredoka One', cursive",
+                fontSize: "1.1em",
+                color: "var(--success)",
+                marginBottom: "6px",
+              }}>
+                Code redeemed!
+              </p>
+              <p style={{ color: "#a0a0c0", fontSize: "0.85em", marginBottom: "14px" }}>
+                You now have unlimited access.
+              </p>
+              <button
+                onClick={() => window.location.reload()}
+                style={{
+                  padding: "10px 28px",
+                  background: "linear-gradient(135deg, var(--success), #00cec9)",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "50px",
+                  fontFamily: "'Fredoka One', cursive",
+                  fontSize: "1em",
+                  cursor: "pointer",
+                }}
+              >
+                Let&apos;s go! →
+              </button>
+            </div>
+          ) : !showPromo ? (
+            /* Collapsed — just a link */
+            <button
+              onClick={() => setShowPromo(true)}
+              style={{
+                width: "100%",
+                background: "none",
+                border: "none",
+                color: "#555",
+                cursor: "pointer",
+                fontSize: "0.82em",
+                fontFamily: "'Nunito', sans-serif",
+                padding: "2px 0",
+                transition: "color 0.2s",
+              }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = "#888"; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = "#555"; }}
+            >
+              Have a promo code?
+            </button>
+          ) : (
+            /* Expanded — code input */
+            <div className="animate-fade-up">
+              <p style={{ fontSize: "0.8em", color: "#888", marginBottom: "8px", textAlign: "center" }}>
+                Enter your promo code
+              </p>
+              <div style={{ display: "flex", gap: "8px" }}>
+                <input
+                  value={promoCode}
+                  onChange={(e) => {
+                    setPromoCode(e.target.value.toUpperCase());
+                    setPromoError(null);
+                  }}
+                  onKeyDown={(e) => { if (e.key === "Enter") redeemCode(); }}
+                  placeholder="YOURCODE"
+                  autoFocus
+                  style={{
+                    flex: 1,
+                    padding: "10px 14px",
+                    background: "rgba(255,255,255,0.05)",
+                    border: `1.5px solid ${promoError ? "var(--danger)" : "rgba(255,255,255,0.12)"}`,
+                    borderRadius: "12px",
+                    color: "var(--text)",
+                    fontFamily: "'Fredoka One', cursive",
+                    fontSize: "1em",
+                    letterSpacing: "2px",
+                    outline: "none",
+                    transition: "border-color 0.2s",
+                  }}
+                />
+                <button
+                  onClick={redeemCode}
+                  disabled={promoLoading || promoCode.trim().length === 0}
+                  style={{
+                    padding: "10px 18px",
+                    background: "linear-gradient(135deg, var(--primary), #8b5cf6)",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "12px",
+                    fontFamily: "'Fredoka One', cursive",
+                    fontSize: "0.95em",
+                    cursor: promoLoading || promoCode.trim().length === 0 ? "not-allowed" : "pointer",
+                    opacity: promoLoading || promoCode.trim().length === 0 ? 0.6 : 1,
+                    whiteSpace: "nowrap",
+                    transition: "opacity 0.2s",
+                  }}
+                >
+                  {promoLoading ? "..." : "Redeem"}
+                </button>
+              </div>
+              {promoError && (
+                <p style={{
+                  color: "var(--danger)",
+                  fontSize: "0.8em",
+                  marginTop: "6px",
+                  textAlign: "center",
+                }} className="animate-fade-up">
+                  {promoError}
+                </p>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
