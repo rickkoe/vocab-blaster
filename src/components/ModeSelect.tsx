@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 const MODES: { id: GameMode; icon: string; name: string; desc: string }[] = [
   { id: "classic", icon: "🎯", name: "Classic Quiz", desc: "Pick the right definition" },
   { id: "reverse", icon: "🔄", name: "Reverse", desc: "Definition → find the word" },
-  { id: "spell", icon: "⌨️", name: "Spell It", desc: "Type the word from a clue" },
+  { id: "spell", icon: "📝", name: "Fill in the Blank", desc: "Pick the word that fits the sentence" },
   { id: "match", icon: "🧩", name: "Match Up", desc: "Pair words with definitions" },
   { id: "speed", icon: "⚡", name: "Speed Round", desc: "Beat the clock!" },
   { id: "study", icon: "📖", name: "Study Cards", desc: "Review all words first" },

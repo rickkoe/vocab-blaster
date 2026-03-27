@@ -6,7 +6,7 @@ import { getQuiz } from "@/lib/supabase/quizzes";
 import type { QuizData, GameMode } from "@/lib/types";
 import ModeSelect from "@/components/ModeSelect";
 import ClassicQuiz from "@/components/ClassicQuiz";
-import SpellIt from "@/components/SpellIt";
+import FillBlank from "@/components/FillBlank";
 import MatchUp from "@/components/MatchUp";
 import StudyCards from "@/components/StudyCards";
 import UserNav from "@/components/UserNav";
@@ -124,7 +124,7 @@ export default function QuizPage() {
         ) : mode === "match" ? (
           <MatchUp key={gameKey} quiz={quiz} onBack={handleBack} onReplay={() => handleSelectMode("match")} />
         ) : mode === "spell" ? (
-          <SpellIt key={gameKey} quiz={quiz} onBack={handleBack} onReplay={() => handleSelectMode("spell")} />
+          <FillBlank key={gameKey} quiz={quiz} onBack={handleBack} onReplay={() => handleSelectMode("spell")} />
         ) : (
           <ClassicQuiz key={gameKey} quiz={quiz} mode={mode} onBack={handleBack} onReplay={() => handleSelectMode(mode)} />
         )}
