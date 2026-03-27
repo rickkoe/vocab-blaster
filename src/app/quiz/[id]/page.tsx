@@ -2,14 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import Link from "next/link";
-import { getQuiz } from "@/lib/storage";
+import { getQuiz } from "@/lib/supabase/quizzes";
 import type { QuizData, GameMode } from "@/lib/types";
 import ModeSelect from "@/components/ModeSelect";
 import ClassicQuiz from "@/components/ClassicQuiz";
 import SpellIt from "@/components/SpellIt";
 import MatchUp from "@/components/MatchUp";
 import StudyCards from "@/components/StudyCards";
+import UserNav from "@/components/UserNav";
 
 export default function QuizPage() {
   const params = useParams();
@@ -20,12 +20,10 @@ export default function QuizPage() {
 
   useEffect(() => {
     const id = params.id as string;
-    const data = getQuiz(id);
-    if (!data) {
-      router.push("/");
-      return;
-    }
-    setQuiz(data);
+    getQuiz(id).then((data) => {
+      if (!data) { router.push("/history"); return; }
+      setQuiz(data);
+    }).catch(() => router.push("/history"));
   }, [params.id, router]);
 
   const handleSelectMode = (m: GameMode) => {
@@ -48,6 +46,7 @@ export default function QuizPage() {
   return (
     <main style={{ minHeight: "100vh" }}>
       <div style={{ maxWidth: "800px", margin: "0 auto", padding: "20px" }}>
+        <UserNav />
         {/* Header */}
         <div style={{ textAlign: "center", padding: "30px 0 20px" }}>
           <h1
@@ -78,27 +77,6 @@ export default function QuizPage() {
           }}>
             {quiz.title}
           </div>
-        </div>
-
-        {/* Nav */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
-          <Link href="/" style={{
-            color: "#888",
-            textDecoration: "none",
-            fontSize: "0.9em",
-            fontWeight: 700,
-            transition: "color 0.2s",
-          }}>
-            ← New Worksheet
-          </Link>
-          <Link href="/history" style={{
-            color: "#888",
-            textDecoration: "none",
-            fontSize: "0.9em",
-            fontWeight: 700,
-          }}>
-            My Quizzes →
-          </Link>
         </div>
 
         {/* Game area */}

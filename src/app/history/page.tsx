@@ -3,29 +3,34 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Trash2, BookOpen, Upload } from "lucide-react";
-import { getQuizzes, deleteQuiz } from "@/lib/storage";
+import { getQuizzes, deleteQuiz } from "@/lib/supabase/quizzes";
 import type { QuizData } from "@/lib/types";
+import UserNav from "@/components/UserNav";
 
 export default function HistoryPage() {
   const [quizzes, setQuizzes] = useState<QuizData[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    setQuizzes(getQuizzes());
+    getQuizzes()
+      .then(setQuizzes)
+      .finally(() => setLoading(false));
   }, []);
 
-  const handleDelete = (id: string, e: React.MouseEvent) => {
+  const handleDelete = async (id: string, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     if (confirm("Delete this quiz?")) {
-      deleteQuiz(id);
-      setQuizzes(getQuizzes());
+      await deleteQuiz(id);
+      setQuizzes((prev) => prev.filter((q) => q.id !== id));
     }
   };
 
   return (
     <main style={{ minHeight: "100vh" }}>
-      <div style={{ maxWidth: "700px", margin: "0 auto", padding: "40px 20px" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "30px" }}>
+      <div style={{ maxWidth: "700px", margin: "0 auto", padding: "30px 20px" }}>
+        <UserNav />
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "20px 0 30px" }}>
           <div>
             <h1 style={{
               fontFamily: "'Fredoka One', cursive",
@@ -38,7 +43,7 @@ export default function HistoryPage() {
               My Quizzes
             </h1>
             <p style={{ color: "#888", marginTop: "4px" }}>
-              {quizzes.length} quiz{quizzes.length !== 1 ? "zes" : ""} saved
+              {loading ? "Loading..." : `${quizzes.length} quiz${quizzes.length !== 1 ? "zes" : ""} saved`}
             </p>
           </div>
           <Link href="/" style={{
