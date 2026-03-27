@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const MODEL = process.env.CLAUDE_MODEL ?? "claude-sonnet-4-6";
 
 const SYSTEM_PROMPT = `You are a vocabulary worksheet parser. Extract all vocabulary words from the provided content and return a JSON object.
 
@@ -64,7 +65,7 @@ export async function POST(req: NextRequest) {
       ];
 
       const response = await client.messages.create({
-        model: "claude-opus-4-6",
+        model: MODEL,
         max_tokens: 4096,
         system: SYSTEM_PROMPT,
         messages,
@@ -166,7 +167,7 @@ export async function POST(req: NextRequest) {
     }
 
     const response = await client.messages.create({
-      model: "claude-opus-4-6",
+      model: MODEL,
       max_tokens: 4096,
       system: SYSTEM_PROMPT,
       messages,
