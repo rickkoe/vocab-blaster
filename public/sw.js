@@ -1,4 +1,4 @@
-const CACHE = "vocab-blaster-v1";
+const CACHE = "vocab-blaster-v2";
 
 // Pre-cache the app shell
 self.addEventListener("install", (event) => {
@@ -10,14 +10,16 @@ self.addEventListener("install", (event) => {
   );
 });
 
-// Clean up old caches on activate
+// Clean up old caches on activate, then take control immediately
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
-    )
+    caches
+      .keys()
+      .then((keys) =>
+        Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
+      )
+      .then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
 self.addEventListener("fetch", (event) => {
