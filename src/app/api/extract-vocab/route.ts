@@ -32,6 +32,58 @@ Extract ALL words you can find — typically 5-20 words.`;
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
+
+    // Multi-image path: staged pages sent as repeated "files" field
+    const multiFiles = formData.getAll("files") as File[];
+    if (multiFiles.length > 0) {
+      const imageBlocks = await Promise.all(
+        multiFiles.map(async (f) => {
+          const bytes = await f.arrayBuffer();
+          return {
+            type: "image" as const,
+            source: {
+              type: "base64" as const,
+              media_type: f.type as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
+              data: Buffer.from(bytes).toString("base64"),
+            },
+          };
+        })
+      );
+
+      const messages: Anthropic.MessageParam[] = [
+        {
+          role: "user",
+          content: [
+            ...imageBlocks,
+            {
+              type: "text",
+              text: `These are ${multiFiles.length} page${multiFiles.length > 1 ? "s" : ""} of the same vocabulary worksheet. Extract all vocabulary words across all pages. Follow the JSON format exactly as specified.`,
+            },
+          ],
+        },
+      ];
+
+      const response = await client.messages.create({
+        model: "claude-opus-4-6",
+        max_tokens: 4096,
+        system: SYSTEM_PROMPT,
+        messages,
+      });
+
+      const text = response.content[0].type === "text" ? response.content[0].text : "";
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        console.error("No JSON found in response:", text);
+        return NextResponse.json({ error: "Failed to extract vocabulary from file" }, { status: 500 });
+      }
+      const data = JSON.parse(jsonMatch[0]);
+      if (!data.words || !Array.isArray(data.words) || data.words.length === 0) {
+        return NextResponse.json({ error: "No vocabulary words found in the file" }, { status: 422 });
+      }
+      return NextResponse.json(data);
+    }
+
+    // Single-file path
     const file = formData.get("file") as File | null;
 
     if (!file) {
@@ -48,12 +100,7 @@ export async function POST(req: NextRequest) {
     const isPdf = mimeType === "application/pdf" || fileName.endsWith(".pdf");
     const isImage = mimeType.startsWith("image/");
 
-    if (isImage || isPdf) {
-      // Send directly to Claude as vision input
-      const mediaType = isPdf
-        ? "application/pdf"
-        : (mimeType as "image/jpeg" | "image/png" | "image/gif" | "image/webp");
-
+    if (isPdf) {
       messages = [
         {
           role: "user",
@@ -62,7 +109,7 @@ export async function POST(req: NextRequest) {
               type: "document" as const,
               source: {
                 type: "base64" as const,
-                media_type: mediaType as "application/pdf",
+                media_type: "application/pdf",
                 data: buffer.toString("base64"),
               },
             },
@@ -73,29 +120,26 @@ export async function POST(req: NextRequest) {
           ],
         },
       ];
-
-      // For images, use image type instead
-      if (isImage) {
-        messages = [
-          {
-            role: "user",
-            content: [
-              {
-                type: "image" as const,
-                source: {
-                  type: "base64" as const,
-                  media_type: mimeType as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
-                  data: buffer.toString("base64"),
-                },
+    } else if (isImage) {
+      messages = [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image" as const,
+              source: {
+                type: "base64" as const,
+                media_type: mimeType as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
+                data: buffer.toString("base64"),
               },
-              {
-                type: "text",
-                text: "Extract all vocabulary words from this worksheet. Follow the JSON format exactly as specified.",
-              },
-            ],
-          },
-        ];
-      }
+            },
+            {
+              type: "text",
+              text: "Extract all vocabulary words from this worksheet. Follow the JSON format exactly as specified.",
+            },
+          ],
+        },
+      ];
     } else if (fileName.endsWith(".docx") || fileName.endsWith(".doc")) {
       // Extract text from Word doc
       const mammoth = await import("mammoth");

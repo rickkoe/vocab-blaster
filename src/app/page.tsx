@@ -3,16 +3,23 @@
 import { useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Upload, FileText, Image, BookOpen, Zap, History } from "lucide-react";
+import { FileText, BookOpen, Zap, History, Camera, Plus, X, ArrowRight } from "lucide-react";
 import { savePending } from "@/lib/storage";
+
+interface StagedPage {
+  file: File;
+  previewUrl: string;
+}
 
 export default function HomePage() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const addPageInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [loadingMsg, setLoadingMsg] = useState("Extracting vocabulary...");
+  const [loadingMsg, setLoadingMsg] = useState("Reading your worksheet...");
+  const [stagedPages, setStagedPages] = useState<StagedPage[]>([]);
 
   const LOADING_MESSAGES = [
     "Reading your worksheet...",
@@ -22,11 +29,11 @@ export default function HomePage() {
     "Almost ready to blast!",
   ];
 
-  const processFile = useCallback(async (file: File) => {
+  // Process a single non-image file (PDF, doc, txt) immediately
+  const processSingleFile = useCallback(async (file: File) => {
     setError(null);
     setIsLoading(true);
     setLoadingMsg(LOADING_MESSAGES[0]);
-
     let msgIdx = 0;
     const msgTimer = setInterval(() => {
       msgIdx = Math.min(msgIdx + 1, LOADING_MESSAGES.length - 1);
@@ -36,18 +43,9 @@ export default function HomePage() {
     try {
       const formData = new FormData();
       formData.append("file", file);
-
-      const res = await fetch("/api/extract-vocab", {
-        method: "POST",
-        body: formData,
-      });
-
+      const res = await fetch("/api/extract-vocab", { method: "POST", body: formData });
       const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || "Failed to process file");
-      }
-
+      if (!res.ok) throw new Error(data.error || "Failed to process file");
       savePending({
         title: data.title || "Vocabulary Quiz",
         rootInfo: data.rootInfo || "",
@@ -64,29 +62,104 @@ export default function HomePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
-  const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      setIsDragging(false);
-      const file = e.dataTransfer.files[0];
-      if (file) processFile(file);
-    },
-    [processFile]
-  );
+  // Submit all staged image pages together
+  const submitPages = useCallback(async () => {
+    if (stagedPages.length === 0) return;
+    setError(null);
+    setIsLoading(true);
+    setLoadingMsg(LOADING_MESSAGES[0]);
+    let msgIdx = 0;
+    const msgTimer = setInterval(() => {
+      msgIdx = Math.min(msgIdx + 1, LOADING_MESSAGES.length - 1);
+      setLoadingMsg(LOADING_MESSAGES[msgIdx]);
+    }, 2500);
+
+    try {
+      const formData = new FormData();
+      stagedPages.forEach((p) => formData.append("files", p.file));
+      const res = await fetch("/api/extract-vocab", { method: "POST", body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to process file");
+      savePending({
+        title: data.title || "Vocabulary Quiz",
+        rootInfo: data.rootInfo || "",
+        words: data.words,
+        sourceFileName: stagedPages.map((p) => p.file.name).join(", "),
+      });
+      // Clean up preview URLs
+      stagedPages.forEach((p) => URL.revokeObjectURL(p.previewUrl));
+      router.push("/review");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong");
+      setIsLoading(false);
+    } finally {
+      clearInterval(msgTimer);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stagedPages, router]);
+
+  const handleFiles = useCallback((files: File[]) => {
+    if (files.length === 0) return;
+
+    const images = files.filter((f) => f.type.startsWith("image/"));
+    const nonImages = files.filter((f) => !f.type.startsWith("image/"));
+
+    // Non-images (PDF/doc/txt): process the first one immediately
+    if (nonImages.length > 0) {
+      processSingleFile(nonImages[0]);
+      return;
+    }
+
+    // Images: add to staging area
+    const newPages: StagedPage[] = images.map((file) => ({
+      file,
+      previewUrl: URL.createObjectURL(file),
+    }));
+    setStagedPages((prev) => [...prev, ...newPages]);
+  }, [processSingleFile]);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    handleFiles(Array.from(e.dataTransfer.files));
+  }, [handleFiles]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) processFile(file);
+    if (e.target.files) handleFiles(Array.from(e.target.files));
+    e.target.value = ""; // reset so same file can be re-added
   };
+
+  const removePage = (index: number) => {
+    setStagedPages((prev) => {
+      URL.revokeObjectURL(prev[index].previewUrl);
+      return prev.filter((_, i) => i !== index);
+    });
+  };
+
+  const clearStaged = () => {
+    stagedPages.forEach((p) => URL.revokeObjectURL(p.previewUrl));
+    setStagedPages([]);
+    setError(null);
+  };
+
+  // ── Render ──────────────────────────────────────────────────
 
   return (
     <main style={{ minHeight: "100vh" }}>
       <div style={{ maxWidth: "700px", margin: "0 auto", padding: "40px 20px" }}>
+
         {/* Header */}
-        <div className="text-center mb-10">
+        <div style={{ textAlign: "center", marginBottom: "36px" }}>
           <h1
-            className="font-fredoka text-5xl gradient-text animate-title-glow"
-            style={{ fontFamily: "'Fredoka One', cursive" }}
+            className="animate-title-glow"
+            style={{
+              fontFamily: "'Fredoka One', cursive",
+              fontSize: "2.8em",
+              background: "linear-gradient(135deg, var(--primary), var(--secondary), var(--accent))",
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+              backgroundClip: "text",
+            }}
           >
             Vocab Blaster!
           </h1>
@@ -95,8 +168,20 @@ export default function HomePage() {
           </p>
         </div>
 
-        {/* Upload Zone */}
-        {!isLoading ? (
+        {isLoading ? (
+          <LoadingCard msg={loadingMsg} />
+        ) : stagedPages.length > 0 ? (
+          /* ── Staging area ── */
+          <StagingArea
+            pages={stagedPages}
+            error={error}
+            onRemove={removePage}
+            onAddMore={() => addPageInputRef.current?.click()}
+            onClear={clearStaged}
+            onSubmit={submitPages}
+          />
+        ) : (
+          /* ── Initial drop zone ── */
           <>
             <div
               onClick={() => fileInputRef.current?.click()}
@@ -107,89 +192,86 @@ export default function HomePage() {
                 background: isDragging ? "rgba(108,92,231,0.15)" : "rgba(26,26,46,0.9)",
                 border: `3px dashed ${isDragging ? "var(--primary)" : "rgba(255,255,255,0.15)"}`,
                 borderRadius: "24px",
-                padding: "60px 40px",
+                padding: "50px 40px",
                 textAlign: "center",
                 cursor: "pointer",
                 transition: "all 0.3s",
                 transform: isDragging ? "scale(1.02)" : "scale(1)",
               }}
             >
-              <div style={{ fontSize: "4em", marginBottom: "16px" }}>
+              <div style={{ fontSize: "3.5em", marginBottom: "14px" }}>
                 {isDragging ? "📂" : "📋"}
               </div>
               <p style={{
                 fontFamily: "'Fredoka One', cursive",
                 fontSize: "1.5em",
-                marginBottom: "8px",
-                color: isDragging ? "var(--primary)" : "var(--text)"
+                marginBottom: "6px",
+                color: isDragging ? "var(--primary)" : "var(--text)",
               }}>
                 {isDragging ? "Drop it here!" : "Drop your worksheet here"}
               </p>
-              <p style={{ color: "#888", fontSize: "0.95em", marginBottom: "20px" }}>
-                or click to browse files
+              <p style={{ color: "#888", fontSize: "0.9em", marginBottom: "24px" }}>
+                PDF, Word doc, or photo — or click to browse
               </p>
 
               <div style={{ display: "flex", justifyContent: "center", gap: "20px", flexWrap: "wrap" }}>
                 {[
                   { icon: FileText, label: "PDF" },
-                  { icon: Image, label: "Photo" },
-                  { icon: BookOpen, label: "Word Doc" },
-                  { icon: FileText, label: "Text" },
+                  { icon: FileText, label: "Word Doc" },
+                  { icon: BookOpen, label: "Text" },
                 ].map(({ icon: Icon, label }) => (
-                  <div key={label} style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    gap: "4px",
-                    color: "#888",
-                    fontSize: "0.85em"
-                  }}>
-                    <Icon size={22} style={{ color: "var(--secondary)" }} />
+                  <div key={label} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "4px", color: "#888", fontSize: "0.85em" }}>
+                    <Icon size={20} style={{ color: "var(--secondary)" }} />
                     <span>{label}</span>
                   </div>
                 ))}
               </div>
             </div>
 
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.doc,.docx,.txt"
-              onChange={handleFileChange}
-              style={{ display: "none" }}
-            />
+            {/* Camera / photo option — prominent on mobile */}
+            <div style={{
+              display: "flex",
+              gap: "10px",
+              marginTop: "12px",
+            }}>
+              <button
+                onClick={() => addPageInputRef.current?.click()}
+                style={{
+                  flex: 1,
+                  padding: "16px",
+                  background: "rgba(0,206,201,0.08)",
+                  border: "2px solid rgba(0,206,201,0.2)",
+                  borderRadius: "18px",
+                  color: "var(--secondary)",
+                  fontFamily: "'Fredoka One', cursive",
+                  fontSize: "1em",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "8px",
+                  transition: "all 0.2s",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(0,206,201,0.14)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(0,206,201,0.08)"; }}
+              >
+                <Camera size={20} />
+                Take / Add Photos
+              </button>
+            </div>
 
-            {error && (
-              <div style={{
-                marginTop: "20px",
-                padding: "16px 20px",
-                background: "rgba(225,112,85,0.12)",
-                border: "1px solid rgba(225,112,85,0.3)",
-                borderRadius: "16px",
-                color: "var(--danger)",
-                fontWeight: 700,
-              }} className="animate-fade-up">
-                ⚠️ {error}
-              </div>
-            )}
+            <p style={{ textAlign: "center", color: "#555", fontSize: "0.8em", marginTop: "8px" }}>
+              Multi-page worksheet? Take one photo per page — you can add more before submitting.
+            </p>
 
-            {/* Game mode previews */}
-            <div style={{ marginTop: "40px" }}>
-              <p style={{
-                textAlign: "center",
-                color: "#888",
-                fontSize: "0.85em",
-                textTransform: "uppercase",
-                letterSpacing: "2px",
-                marginBottom: "16px"
-              }}>
+            {error && <ErrorBanner msg={error} />}
+
+            {/* Game mode grid */}
+            <div style={{ marginTop: "36px" }}>
+              <p style={{ textAlign: "center", color: "#666", fontSize: "0.8em", textTransform: "uppercase", letterSpacing: "2px", marginBottom: "14px" }}>
                 6 Game Modes Included
               </p>
-              <div style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(3, 1fr)",
-                gap: "10px",
-              }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "10px" }}>
                 {[
                   { icon: "🎯", name: "Classic Quiz" },
                   { icon: "🔄", name: "Reverse" },
@@ -205,87 +287,220 @@ export default function HomePage() {
                     padding: "14px 10px",
                     textAlign: "center",
                   }}>
-                    <div style={{ fontSize: "1.6em" }}>{m.icon}</div>
-                    <div style={{
-                      fontSize: "0.78em",
-                      fontWeight: 700,
-                      marginTop: "4px",
-                      color: "#ccc"
-                    }}>{m.name}</div>
+                    <div style={{ fontSize: "1.5em" }}>{m.icon}</div>
+                    <div style={{ fontSize: "0.78em", fontWeight: 700, marginTop: "4px", color: "#ccc" }}>{m.name}</div>
                   </div>
                 ))}
               </div>
             </div>
 
-            {/* History link */}
-            <div style={{ textAlign: "center", marginTop: "30px" }}>
+            <div style={{ textAlign: "center", marginTop: "28px" }}>
               <Link href="/history" style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "8px",
-                color: "#888",
-                textDecoration: "none",
-                fontSize: "0.95em",
-                fontWeight: 700,
-                transition: "color 0.2s",
+                display: "inline-flex", alignItems: "center", gap: "8px",
+                color: "#666", textDecoration: "none", fontSize: "0.9em", fontWeight: 700,
               }}
                 onMouseEnter={(e) => (e.currentTarget.style.color = "var(--text)")}
-                onMouseLeave={(e) => (e.currentTarget.style.color = "#888")}
+                onMouseLeave={(e) => (e.currentTarget.style.color = "#666")}
               >
-                <History size={18} />
+                <History size={16} />
                 View past quizzes
               </Link>
             </div>
           </>
-        ) : (
-          /* Loading state */
-          <div style={{
-            background: "rgba(26,26,46,0.9)",
-            border: "1px solid rgba(255,255,255,0.08)",
-            borderRadius: "24px",
-            padding: "60px 40px",
-            textAlign: "center",
-          }}>
-            <div style={{ marginBottom: "24px" }}>
-              <Zap
-                size={52}
-                style={{
-                  color: "var(--accent)",
-                  margin: "0 auto",
-                  animation: "titleGlow 1s ease-in-out infinite alternate",
-                }}
-              />
-            </div>
-            <p style={{
-              fontFamily: "'Fredoka One', cursive",
-              fontSize: "1.6em",
-              marginBottom: "8px",
-              color: "var(--accent)"
-            }}>
-              Loading...
-            </p>
-            <p style={{ color: "#a0a0c0", fontSize: "1em" }}>{loadingMsg}</p>
-
-            {/* Animated dots */}
-            <div style={{
-              display: "flex",
-              justifyContent: "center",
-              gap: "8px",
-              marginTop: "24px"
-            }}>
-              {[0, 1, 2].map((i) => (
-                <div key={i} style={{
-                  width: "10px",
-                  height: "10px",
-                  borderRadius: "50%",
-                  background: "var(--primary)",
-                  animation: `titleGlow 1.2s ease-in-out ${i * 0.2}s infinite alternate`,
-                }} />
-              ))}
-            </div>
-          </div>
         )}
+
+        {/* Hidden file inputs */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.doc,.docx,.txt"
+          onChange={handleFileChange}
+          style={{ display: "none" }}
+        />
+        {/* Image/camera input — supports multiple, camera capture on mobile */}
+        <input
+          ref={addPageInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          capture="environment"
+          onChange={handleFileChange}
+          style={{ display: "none" }}
+        />
       </div>
     </main>
+  );
+}
+
+// ── Sub-components ──────────────────────────────────────────
+
+function StagingArea({ pages, error, onRemove, onAddMore, onClear, onSubmit }: {
+  pages: StagedPage[];
+  error: string | null;
+  onRemove: (i: number) => void;
+  onAddMore: () => void;
+  onClear: () => void;
+  onSubmit: () => void;
+}) {
+  return (
+    <div className="animate-fade-up">
+      <div style={{
+        background: "var(--card)",
+        border: "1px solid rgba(255,255,255,0.08)",
+        borderRadius: "24px",
+        padding: "24px",
+        position: "relative",
+        overflow: "hidden",
+      }}>
+        <div style={{
+          position: "absolute", top: 0, left: 0, right: 0, height: "4px",
+          background: "linear-gradient(90deg, var(--primary), var(--secondary), var(--accent))",
+        }} />
+
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "18px" }}>
+          <div>
+            <p style={{ fontFamily: "'Fredoka One', cursive", fontSize: "1.2em", color: "var(--secondary)" }}>
+              📸 {pages.length} page{pages.length !== 1 ? "s" : ""} ready
+            </p>
+            <p style={{ fontSize: "0.82em", color: "#666", marginTop: "2px" }}>
+              Add more pages or extract when done
+            </p>
+          </div>
+          <button onClick={onClear} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", padding: "4px" }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--danger)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = "#555"; }}
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Thumbnails */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(100px, 1fr))", gap: "10px", marginBottom: "18px" }}>
+          {pages.map((p, i) => (
+            <div key={i} style={{ position: "relative", aspectRatio: "3/4" }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={p.previewUrl}
+                alt={`Page ${i + 1}`}
+                style={{
+                  width: "100%", height: "100%",
+                  objectFit: "cover",
+                  borderRadius: "10px",
+                  border: "1px solid rgba(255,255,255,0.1)",
+                }}
+              />
+              <div style={{
+                position: "absolute", bottom: "4px", left: "4px",
+                background: "rgba(0,0,0,0.65)", color: "#fff",
+                fontSize: "0.7em", fontWeight: 700,
+                padding: "2px 7px", borderRadius: "6px",
+              }}>
+                pg {i + 1}
+              </div>
+              <button
+                onClick={() => onRemove(i)}
+                style={{
+                  position: "absolute", top: "4px", right: "4px",
+                  background: "rgba(0,0,0,0.65)", border: "none",
+                  color: "#fff", width: "22px", height: "22px",
+                  borderRadius: "50%", cursor: "pointer",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: "0.7em",
+                }}
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+
+          {/* Add page tile */}
+          <button
+            onClick={onAddMore}
+            style={{
+              aspectRatio: "3/4",
+              background: "rgba(108,92,231,0.06)",
+              border: "2px dashed rgba(108,92,231,0.3)",
+              borderRadius: "10px",
+              cursor: "pointer",
+              display: "flex", flexDirection: "column",
+              alignItems: "center", justifyContent: "center",
+              gap: "4px", color: "var(--primary)",
+              transition: "all 0.2s",
+              minHeight: "80px",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(108,92,231,0.12)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(108,92,231,0.06)"; }}
+          >
+            <Plus size={20} />
+            <span style={{ fontSize: "0.72em", fontWeight: 700 }}>Add page</span>
+          </button>
+        </div>
+
+        {error && <ErrorBanner msg={error} />}
+
+        <button
+          onClick={onSubmit}
+          style={{
+            width: "100%",
+            padding: "16px",
+            fontFamily: "'Fredoka One', cursive",
+            fontSize: "1.15em",
+            background: "linear-gradient(135deg, var(--success), #00cec9)",
+            color: "white",
+            border: "none",
+            borderRadius: "14px",
+            cursor: "pointer",
+            display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
+            transition: "all 0.2s",
+            boxShadow: "0 4px 20px rgba(0,184,148,0.3)",
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.transform = "scale(1.02)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; }}
+        >
+          Extract Vocabulary <ArrowRight size={20} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function LoadingCard({ msg }: { msg: string }) {
+  return (
+    <div style={{
+      background: "rgba(26,26,46,0.9)",
+      border: "1px solid rgba(255,255,255,0.08)",
+      borderRadius: "24px",
+      padding: "60px 40px",
+      textAlign: "center",
+    }}>
+      <Zap size={52} style={{ color: "var(--accent)", margin: "0 auto 20px", display: "block", animation: "titleGlow 1s ease-in-out infinite alternate" }} />
+      <p style={{ fontFamily: "'Fredoka One', cursive", fontSize: "1.6em", marginBottom: "8px", color: "var(--accent)" }}>
+        Loading...
+      </p>
+      <p style={{ color: "#a0a0c0", fontSize: "1em" }}>{msg}</p>
+      <div style={{ display: "flex", justifyContent: "center", gap: "8px", marginTop: "24px" }}>
+        {[0, 1, 2].map((i) => (
+          <div key={i} style={{
+            width: "10px", height: "10px", borderRadius: "50%",
+            background: "var(--primary)",
+            animation: `titleGlow 1.2s ease-in-out ${i * 0.2}s infinite alternate`,
+          }} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ErrorBanner({ msg }: { msg: string }) {
+  return (
+    <div style={{
+      marginTop: "16px", padding: "14px 18px",
+      background: "rgba(225,112,85,0.12)",
+      border: "1px solid rgba(225,112,85,0.3)",
+      borderRadius: "14px",
+      color: "var(--danger)", fontWeight: 700, fontSize: "0.9em",
+    }} className="animate-fade-up">
+      ⚠️ {msg}
+    </div>
   );
 }
