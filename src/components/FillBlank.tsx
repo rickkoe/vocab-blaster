@@ -290,7 +290,7 @@ export default function FillBlank({ quiz, onBack, onReplay }: Props) {
         onClick={onBack}
         style={{ background: "none", border: "none", color: "#888", fontSize: "1em", cursor: "pointer", padding: "8px 0", fontFamily: "'Nunito', sans-serif", fontWeight: 700 }}
       >
-        ← Modes
+        ← Games
       </button>
 
       {/* Progress bar */}
