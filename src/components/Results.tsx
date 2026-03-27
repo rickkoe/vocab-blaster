@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import type { GameResult } from "@/lib/types";
 import { scoreEmoji } from "@/lib/utils";
 import { updateStats } from "@/lib/storage";
+import { playCelebration } from "@/lib/sounds";
 
 interface Props {
   result: GameResult;
@@ -26,7 +27,10 @@ export default function Results({ result, onPlayAgain, onBack }: Props) {
 
   useEffect(() => {
     updateStats(pct, result.bestStreak);
-    if (pct >= 80) launchConfetti();
+    if (pct >= 80) {
+      launchConfetti();
+      playCelebration();
+    }
   }, [pct, result.bestStreak]);
 
   return (

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { QuizData, GameMode, GameResult } from "@/lib/types";
 import { shuffle, pickRandom } from "@/lib/utils";
+import { playCorrect, playWrong, playStreak, playTimerWarning } from "@/lib/sounds";
 import Results from "./Results";
 
 interface Question {
@@ -61,6 +62,7 @@ export default function ClassicQuiz({ quiz, mode, onBack, onReplay }: Props) {
   const [timeLeft, setTimeLeft] = useState(8000);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastTickRef = useRef<number>(Date.now());
+  const warnedRef = useRef(false); // tracks whether timer warning has fired this question
   const isSpeed = mode === "speed";
 
   const endGame = useCallback((finalScore: number, finalWrong: number, finalBestStreak: number) => {
@@ -90,10 +92,12 @@ export default function ClassicQuiz({ quiz, mode, onBack, onReplay }: Props) {
       newStreak += 1;
       if (newStreak > newBestStreak) newBestStreak = newStreak;
       setFeedback({ text: "✅ Correct!", correct: true });
+      if (newStreak >= 3) playStreak(); else playCorrect();
     } else {
       newWrong += 1;
       newStreak = 0;
       setFeedback({ text: `❌ The answer was: "${q.answer}"`, correct: false });
+      playWrong();
     }
 
     setScore(newScore);
@@ -118,6 +122,7 @@ export default function ClassicQuiz({ quiz, mode, onBack, onReplay }: Props) {
     if (!isSpeed || answered !== null || result !== null) return;
 
     lastTickRef.current = Date.now();
+    warnedRef.current = false;
     setTimeLeft(8000);
 
     timerRef.current = setInterval(() => {
@@ -127,6 +132,11 @@ export default function ClassicQuiz({ quiz, mode, onBack, onReplay }: Props) {
 
       setTimeLeft((prev) => {
         const next = prev - elapsed;
+        // Play warning once when under 2 seconds
+        if (next <= 2000 && prev > 2000 && !warnedRef.current) {
+          warnedRef.current = true;
+          playTimerWarning();
+        }
         if (next <= 0) {
           clearInterval(timerRef.current!);
           handleAnswer("__timeout__", score, wrong, streak, bestStreak);

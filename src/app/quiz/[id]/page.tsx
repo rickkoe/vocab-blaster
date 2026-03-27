@@ -10,13 +10,19 @@ import SpellIt from "@/components/SpellIt";
 import MatchUp from "@/components/MatchUp";
 import StudyCards from "@/components/StudyCards";
 import UserNav from "@/components/UserNav";
+import { isSoundMuted, setSoundMuted } from "@/lib/sounds";
 
 export default function QuizPage() {
   const params = useParams();
   const router = useRouter();
   const [quiz, setQuiz] = useState<QuizData | null>(null);
   const [mode, setMode] = useState<GameMode | null>(null);
-  const [gameKey, setGameKey] = useState(0); // force remount on replay
+  const [gameKey, setGameKey] = useState(0);
+  const [muted, setMuted] = useState(false);
+
+  useEffect(() => {
+    setMuted(isSoundMuted());
+  }, []);
 
   useEffect(() => {
     const id = params.id as string;
@@ -31,8 +37,12 @@ export default function QuizPage() {
     setGameKey((k) => k + 1);
   };
 
-  const handleBack = () => {
-    setMode(null);
+  const handleBack = () => setMode(null);
+
+  const toggleMute = () => {
+    const next = !muted;
+    setMuted(next);
+    setSoundMuted(next);
   };
 
   if (!quiz) {
@@ -46,7 +56,30 @@ export default function QuizPage() {
   return (
     <main style={{ minHeight: "100vh" }}>
       <div style={{ maxWidth: "800px", margin: "0 auto", padding: "20px" }}>
-        <UserNav />
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <UserNav />
+          {/* Sound mute toggle */}
+          <button
+            onClick={toggleMute}
+            title={muted ? "Unmute sounds" : "Mute sounds"}
+            style={{
+              background: "none",
+              border: "1px solid rgba(255,255,255,0.1)",
+              borderRadius: "10px",
+              padding: "6px 12px",
+              color: muted ? "#555" : "var(--secondary)",
+              cursor: "pointer",
+              fontSize: "1.1em",
+              transition: "all 0.2s",
+              flexShrink: 0,
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.25)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)"; }}
+          >
+            {muted ? "🔇" : "🔊"}
+          </button>
+        </div>
+
         {/* Header */}
         <div style={{ textAlign: "center", padding: "30px 0 20px" }}>
           <h1

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { QuizData, GameResult } from "@/lib/types";
 import { pickRandom, shuffle } from "@/lib/utils";
+import { playCorrect, playWrong, playStreak } from "@/lib/sounds";
 import Results from "./Results";
 
 interface Props {
@@ -78,6 +79,7 @@ export default function MatchUp({ quiz, onBack, onReplay }: Props) {
       const newScore = score + 1;
       const newStreak = streak + 1;
       const newBestStreak = Math.max(bestStreak, newStreak);
+      if (newStreak >= 3) playStreak(); else playCorrect();
 
       setMatchedCount(newMatchedCount);
       setScore(newScore);
@@ -106,6 +108,7 @@ export default function MatchUp({ quiz, onBack, onReplay }: Props) {
       const newStreak = 0;
       setWrong(newWrong);
       setStreak(newStreak);
+      playWrong();
       setSelected(null);
 
       // Flash wrong state then reset

@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import type { QuizData, GameResult } from "@/lib/types";
 import { shuffle } from "@/lib/utils";
+import { playCorrect, playWrong, playStreak } from "@/lib/sounds";
 import Results from "./Results";
 
 interface Props {
@@ -43,9 +44,11 @@ export default function SpellIt({ quiz, onBack, onReplay }: Props) {
       newScore += 1;
       newStreak += 1;
       if (newStreak > newBestStreak) newBestStreak = newStreak;
+      if (newStreak >= 3) playStreak(); else playCorrect();
     } else {
       newWrong += 1;
       newStreak = 0;
+      playWrong();
     }
 
     setScore(newScore);
