@@ -45,9 +45,12 @@ export async function POST(req: NextRequest) {
 
     let messages: Anthropic.MessageParam[];
 
-    if (mimeType.startsWith("image/") || mimeType === "application/pdf") {
+    const isPdf = mimeType === "application/pdf" || fileName.endsWith(".pdf");
+    const isImage = mimeType.startsWith("image/");
+
+    if (isImage || isPdf) {
       // Send directly to Claude as vision input
-      const mediaType = mimeType === "application/pdf"
+      const mediaType = isPdf
         ? "application/pdf"
         : (mimeType as "image/jpeg" | "image/png" | "image/gif" | "image/webp");
 
@@ -72,7 +75,7 @@ export async function POST(req: NextRequest) {
       ];
 
       // For images, use image type instead
-      if (mimeType.startsWith("image/")) {
+      if (isImage) {
         messages = [
           {
             role: "user",
