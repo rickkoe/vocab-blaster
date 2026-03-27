@@ -3,7 +3,7 @@ export interface VocabWord {
   pos: string; // part of speech
   def: string; // full definition
   short: string; // short definition (5-7 words)
-  root: string; // root word info
+  root?: string; // root word info (empty/absent for non-root worksheets)
   sentences?: string[]; // example sentences with blank
 }
 

@@ -97,7 +97,7 @@ export default function ReviewPage() {
           word: w.word.trim(),
           def: w.def.trim(),
           short: w.short.trim() || w.def.split(" ").slice(0, 6).join(" "),
-          root: w.root.trim(),
+          root: (w.root ?? "").trim(),
           pos: w.pos.trim() || "noun",
         })),
         sourceFileName,
@@ -489,7 +489,7 @@ function WordCard({
         <div>
           <label style={labelStyle}>Root Breakdown</label>
           <input
-            value={word.root}
+            value={word.root ?? ""}
             onChange={(e) => onChange(word._id, "root", e.target.value)}
             placeholder="e.g. tract + ion"
             style={inputStyle()}

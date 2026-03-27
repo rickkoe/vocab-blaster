@@ -10,15 +10,15 @@ const SYSTEM_PROMPT = `You are a vocabulary worksheet parser. Extract all vocabu
 
 Return ONLY valid JSON, no markdown, no explanation. The format must be:
 {
-  "title": "root word(s) and meaning, e.g. TRACT = pull",
-  "rootInfo": "brief description of the root, e.g. Latin root TRACT means to pull",
+  "title": "the topic or theme, e.g. 'Household Vocabulary' or 'TRACT = pull'",
+  "rootInfo": "brief description of the topic, e.g. 'Common household items and rooms' or 'Latin root TRACT means to pull'",
   "words": [
     {
       "word": "the vocabulary word",
-      "pos": "part of speech (noun/verb/adjective/adverb)",
-      "def": "full definition from the worksheet",
+      "pos": "part of speech (noun/verb/adjective/adverb) — infer from context if not stated, default to noun",
+      "def": "full definition or description from the worksheet",
       "short": "5-7 word short definition",
-      "root": "root breakdown, e.g. tract + ion",
+      "root": "root breakdown only if a root-word theme is present (e.g. 'tract + ion'), otherwise use empty string",
       "sentences": [
         "Example sentence with ___ as blank placeholder for the word.",
         "Another example sentence with ___ as blank.",
@@ -28,9 +28,13 @@ Return ONLY valid JSON, no markdown, no explanation. The format must be:
   ]
 }
 
-If the worksheet doesn't have a clear root word theme, set title to the main topic and rootInfo to a brief description.
-Generate 3 example sentences per word if none are provided, using ___ as placeholder for the word.
-Extract ALL words you can find — typically 5-20 words.`;
+This works with ANY vocabulary worksheet format:
+- Root-word worksheets (TRACT, PORT, SPEC, etc.) — fill in root with the breakdown
+- Simple word/definition or word/clue lists — leave root as empty string ""
+- Matching worksheets, fill-in-the-blank, picture-based, thematic lists, etc.
+- Any subject: household, science, history, foreign language, etc.
+
+Always infer part of speech from context even if not stated. Generate 3 natural example sentences per word using ___ as the placeholder. Extract ALL words you can find — typically 5-20 words.`;
 
 export async function POST(req: NextRequest) {
   try {
@@ -77,6 +81,15 @@ export async function POST(req: NextRequest) {
     }
     // ─────────────────────────────────────────────────────────
 
+    // Supported image types for the Anthropic API
+    const SUPPORTED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"] as const;
+    type SupportedImageType = typeof SUPPORTED_IMAGE_TYPES[number];
+    const toSupportedMime = (mime: string): SupportedImageType => {
+      if ((SUPPORTED_IMAGE_TYPES as readonly string[]).includes(mime)) return mime as SupportedImageType;
+      // HEIC/HEIF (iOS) and other formats → treat as JPEG (browser usually converts already)
+      return "image/jpeg";
+    };
+
     // Multi-image path: staged pages sent as repeated "files" field
     const multiFiles = formData.getAll("files") as File[];
     if (multiFiles.length > 0) {
@@ -87,7 +100,7 @@ export async function POST(req: NextRequest) {
             type: "image" as const,
             source: {
               type: "base64" as const,
-              media_type: f.type as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
+              media_type: toSupportedMime(f.type),
               data: Buffer.from(bytes).toString("base64"),
             },
           };
@@ -173,7 +186,7 @@ export async function POST(req: NextRequest) {
               type: "image" as const,
               source: {
                 type: "base64" as const,
-                media_type: mimeType as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
+                media_type: toSupportedMime(mimeType),
                 data: buffer.toString("base64"),
               },
             },

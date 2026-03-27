@@ -90,10 +90,12 @@ export default function StudyCards({ quiz, onBack }: Props) {
               {isOpen && (
                 <div className="animate-fade-up" style={{ marginTop: "10px" }}>
                   <div style={{ color: "#ccc", lineHeight: 1.5 }}>{v.def}</div>
-                  <div style={{ marginTop: "8px", fontSize: "0.85em" }}>
-                    <span style={{ color: "#666" }}>Root: </span>
-                    <span style={{ color: "var(--accent)", fontWeight: 700 }}>{v.root}</span>
-                  </div>
+                  {v.root && (
+                    <div style={{ marginTop: "8px", fontSize: "0.85em" }}>
+                      <span style={{ color: "#666" }}>Root: </span>
+                      <span style={{ color: "var(--accent)", fontWeight: 700 }}>{v.root}</span>
+                    </div>
+                  )}
                   {v.sentences?.[0] && (
                     <div style={{
                       marginTop: "10px",
