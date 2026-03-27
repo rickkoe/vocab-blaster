@@ -1,10 +1,15 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { FileText, BookOpen, Zap, History, Camera, Plus, X, ArrowRight } from "lucide-react";
+import type { User } from "@supabase/supabase-js";
+import { createClient } from "@/lib/supabase/client";
+import { getUsageStatus, FREE_MONTHLY_LIMIT } from "@/lib/supabase/billing";
 import { savePending } from "@/lib/storage";
+import LandingPage from "@/components/LandingPage";
+import UpgradeModal from "@/components/UpgradeModal";
 
 interface StagedPage {
   file: File;
@@ -20,6 +25,23 @@ export default function HomePage() {
   const [error, setError] = useState<string | null>(null);
   const [loadingMsg, setLoadingMsg] = useState("Reading your worksheet...");
   const [stagedPages, setStagedPages] = useState<StagedPage[]>([]);
+
+  // Auth + billing state
+  // undefined = still checking, null = not logged in, User = logged in
+  const [user, setUser] = useState<User | null | undefined>(undefined);
+  const [monthlyCount, setMonthlyCount] = useState(0);
+  const [upgradeRequired, setUpgradeRequired] = useState(false);
+
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getUser().then(({ data }) => {
+      const u = data.user ?? null;
+      setUser(u);
+      if (u) {
+        getUsageStatus().then((s) => setMonthlyCount(s.monthlyCount));
+      }
+    });
+  }, []);
 
   const LOADING_MESSAGES = [
     "Reading your worksheet...",
@@ -45,6 +67,11 @@ export default function HomePage() {
       formData.append("file", file);
       const res = await fetch("/api/extract-vocab", { method: "POST", body: formData });
       const data = await res.json();
+      if (res.status === 402 && data.upgradeRequired) {
+        setIsLoading(false);
+        setUpgradeRequired(true);
+        return;
+      }
       if (!res.ok) throw new Error(data.error || "Failed to process file");
       savePending({
         title: data.title || "Vocabulary Quiz",
@@ -79,6 +106,11 @@ export default function HomePage() {
       stagedPages.forEach((p) => formData.append("files", p.file));
       const res = await fetch("/api/extract-vocab", { method: "POST", body: formData });
       const data = await res.json();
+      if (res.status === 402 && data.upgradeRequired) {
+        setIsLoading(false);
+        setUpgradeRequired(true);
+        return;
+      }
       if (!res.ok) throw new Error(data.error || "Failed to process file");
       savePending({
         title: data.title || "Vocabulary Quiz",
@@ -142,10 +174,30 @@ export default function HomePage() {
     setError(null);
   };
 
-  // ── Render ──────────────────────────────────────────────────
+  // ── Auth gate ────────────────────────────────────────────────
+  // Still loading auth state — show nothing to avoid flash
+  if (user === undefined) {
+    return <div style={{ minHeight: "100vh" }} />;
+  }
+
+  // Not logged in — show marketing landing page
+  if (user === null) {
+    return <LandingPage />;
+  }
+
+  // ── Logged-in upload UI ──────────────────────────────────────
+
+  const quizzesLeft = Math.max(0, FREE_MONTHLY_LIMIT - monthlyCount);
 
   return (
     <main style={{ minHeight: "100vh" }}>
+      {upgradeRequired && (
+        <UpgradeModal
+          monthlyCount={monthlyCount}
+          onClose={() => setUpgradeRequired(false)}
+        />
+      )}
+
       <div style={{ maxWidth: "700px", margin: "0 auto", padding: "40px 20px" }}>
 
         {/* Header */}
@@ -164,8 +216,34 @@ export default function HomePage() {
             Vocab Blaster!
           </h1>
           <p style={{ color: "#a0a0c0", marginTop: "8px", fontSize: "1.1em" }}>
-            Upload a vocabulary worksheet. We'll turn it into a game.
+            Upload a vocabulary worksheet. We&apos;ll turn it into a game.
           </p>
+
+          {/* Quota badge */}
+          <div style={{ marginTop: "10px" }}>
+            {monthlyCount >= FREE_MONTHLY_LIMIT ? (
+              <button
+                onClick={() => setUpgradeRequired(true)}
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: "6px",
+                  padding: "4px 14px",
+                  background: "rgba(225,112,85,0.1)", border: "1px solid rgba(225,112,85,0.3)",
+                  borderRadius: "20px", fontSize: "0.8em", color: "var(--danger)",
+                  cursor: "pointer", fontWeight: 700,
+                }}
+              >
+                ⚠️ Free limit reached — Upgrade for unlimited
+              </button>
+            ) : (
+              <span style={{
+                display: "inline-block", padding: "4px 14px",
+                background: "rgba(0,184,148,0.08)", border: "1px solid rgba(0,184,148,0.2)",
+                borderRadius: "20px", fontSize: "0.78em", color: "#888",
+              }}>
+                {quizzesLeft} free quiz{quizzesLeft !== 1 ? "zes" : ""} left this month
+              </span>
+            )}
+          </div>
         </div>
 
         {isLoading ? (
@@ -229,11 +307,7 @@ export default function HomePage() {
             </div>
 
             {/* Camera / photo option — prominent on mobile */}
-            <div style={{
-              display: "flex",
-              gap: "10px",
-              marginTop: "12px",
-            }}>
+            <div style={{ display: "flex", gap: "10px", marginTop: "12px" }}>
               <button
                 onClick={() => addPageInputRef.current?.click()}
                 style={{

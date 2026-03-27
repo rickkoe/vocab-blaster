@@ -71,6 +71,10 @@ export async function saveQuiz(
     .single();
 
   if (error) throw error;
+
+  // Increment monthly usage counter
+  await supabase.rpc("increment_quiz_count", { p_user_id: user.id });
+
   return rowToQuiz(data as QuizRow);
 }
 

@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
+import { createClient as createSupabaseClient } from "@/lib/supabase/server";
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const MODEL = process.env.CLAUDE_MODEL ?? "claude-sonnet-4-6";
+const FREE_MONTHLY_LIMIT = 5;
 
 const SYSTEM_PROMPT = `You are a vocabulary worksheet parser. Extract all vocabulary words from the provided content and return a JSON object.
 
@@ -33,6 +35,47 @@ Extract ALL words you can find — typically 5-20 words.`;
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
+
+    // ── Quota check for logged-in users ──────────────────────
+    const supabase = await createSupabaseClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (user) {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("subscription_status, monthly_quiz_count, quiz_count_reset_at")
+        .eq("id", user.id)
+        .single();
+
+      if (profile) {
+        const resetAt = new Date(profile.quiz_count_reset_at as string);
+        const now = new Date();
+        const monthsElapsed =
+          (now.getFullYear() - resetAt.getFullYear()) * 12 +
+          (now.getMonth() - resetAt.getMonth());
+
+        let count = profile.monthly_quiz_count as number;
+        if (monthsElapsed >= 1) {
+          await supabase.from("profiles").update({
+            monthly_quiz_count: 0,
+            quiz_count_reset_at: new Date(now.getFullYear(), now.getMonth(), 1).toISOString(),
+          }).eq("id", user.id);
+          count = 0;
+        }
+
+        const isPro = (profile.subscription_status as string) === "pro";
+        if (!isPro && count >= FREE_MONTHLY_LIMIT) {
+          return NextResponse.json(
+            {
+              error: `You've used all ${FREE_MONTHLY_LIMIT} free quizzes this month. Upgrade to Pro for unlimited access.`,
+              upgradeRequired: true,
+            },
+            { status: 402 }
+          );
+        }
+      }
+    }
+    // ─────────────────────────────────────────────────────────
 
     // Multi-image path: staged pages sent as repeated "files" field
     const multiFiles = formData.getAll("files") as File[];
