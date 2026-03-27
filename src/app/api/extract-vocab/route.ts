@@ -147,9 +147,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(data);
   } catch (err) {
     console.error("Extract vocab error:", err);
-    return NextResponse.json(
-      { error: "Failed to process file. Please try again." },
-      { status: 500 }
-    );
+    // Surface the actual API error message so it's debuggable
+    const message =
+      err instanceof Error ? err.message : "Failed to process file. Please try again.";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
