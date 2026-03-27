@@ -152,16 +152,14 @@ export async function POST(req: NextRequest) {
         const detected = detectImageType(buf);
         console.log(`[extract-vocab] Detected type: ${detected}`);
 
-        if (detected === "image/heic") {
-          return NextResponse.json({ error: HEIC_ERROR }, { status: 415 });
-        }
-
+        // Map any unsupported type (including HEIC that slipped through) to jpeg.
+        // Client-side canvas conversion handles HEIC on upload; this is a safety net.
         const mediaType: SupportedImageType =
-          detected !== "unknown" ? detected : (
-            (SUPPORTED_IMAGE_TYPES as string[]).includes(f.type)
+          detected !== "unknown" && detected !== "image/heic"
+            ? detected
+            : (SUPPORTED_IMAGE_TYPES as string[]).includes(f.type)
               ? f.type as SupportedImageType
-              : "image/jpeg"
-          );
+              : "image/jpeg";
 
         imageBlocks.push({
           type: "image",
@@ -256,16 +254,13 @@ export async function POST(req: NextRequest) {
       const detected = detectImageType(buffer);
       console.log(`[extract-vocab] Single image detected type: ${detected}`);
 
-      if (detected === "image/heic") {
-        return NextResponse.json({ error: HEIC_ERROR }, { status: 415 });
-      }
-
+      // Map any unsupported type (including HEIC that slipped through) to jpeg.
       const mediaType: SupportedImageType =
-        detected !== "unknown" ? detected : (
-          (SUPPORTED_IMAGE_TYPES as string[]).includes(mimeType)
+        detected !== "unknown" && detected !== "image/heic"
+          ? detected
+          : (SUPPORTED_IMAGE_TYPES as string[]).includes(mimeType)
             ? mimeType as SupportedImageType
-            : "image/jpeg"
-        );
+            : "image/jpeg";
 
       messages = [
         {

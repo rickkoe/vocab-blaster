@@ -16,6 +16,45 @@ interface StagedPage {
   previewUrl: string;
 }
 
+/**
+ * Convert a HEIC/HEIF file to JPEG using canvas.
+ * iOS Safari can render HEIC natively, so drawing to canvas and exporting
+ * as JPEG produces a file the Anthropic API can accept.
+ * Falls back to the original file if conversion fails.
+ */
+async function convertToJpegIfNeeded(file: File): Promise<File> {
+  const isHeic =
+    file.type === "image/heic" ||
+    file.type === "image/heif" ||
+    file.name.toLowerCase().endsWith(".heic") ||
+    file.name.toLowerCase().endsWith(".heif");
+  if (!isHeic) return file;
+
+  return new Promise((resolve) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) { URL.revokeObjectURL(url); resolve(file); return; }
+      ctx.drawImage(img, 0, 0);
+      URL.revokeObjectURL(url);
+      canvas.toBlob((blob) => {
+        if (!blob) { resolve(file); return; }
+        const jpegName = file.name.replace(/\.(heic|heif)$/i, ".jpg");
+        resolve(new File([blob], jpegName, { type: "image/jpeg" }));
+      }, "image/jpeg", 0.92);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve(file); // send as-is; server will handle gracefully
+    };
+    img.src = url;
+  });
+}
+
 export default function HomePage() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -130,26 +169,19 @@ export default function HomePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stagedPages, router]);
 
-  const handleFiles = useCallback((files: File[]) => {
+  const handleFiles = useCallback(async (files: File[]) => {
     if (files.length === 0) return;
 
-    // Detect HEIC/HEIF before staging — these can't be processed
-    const heicFile = files.find(
-      (f) =>
-        f.type === "image/heic" ||
-        f.type === "image/heif" ||
-        f.name.toLowerCase().endsWith(".heic") ||
-        f.name.toLowerCase().endsWith(".heif"),
-    );
-    if (heicFile) {
-      setError(
-        'Your photo is in HEIC format, which can\'t be processed. On your iPhone go to Settings → Camera → Formats and choose "Most Compatible", then try again.',
-      );
-      return;
-    }
+    // A file is an image if its MIME starts with "image/", is empty (unknown),
+    // or it has a .heic/.heif extension (iPhones sometimes report no MIME type).
+    const isImageFile = (f: File) =>
+      f.type.startsWith("image/") ||
+      f.type === "" ||
+      f.name.toLowerCase().endsWith(".heic") ||
+      f.name.toLowerCase().endsWith(".heif");
 
-    const images = files.filter((f) => f.type.startsWith("image/") || f.type === "");
-    const nonImages = files.filter((f) => !f.type.startsWith("image/") && f.type !== "");
+    const nonImages = files.filter((f) => !isImageFile(f));
+    const imageFiles = files.filter(isImageFile);
 
     // Non-images (PDF/doc/txt): process the first one immediately
     if (nonImages.length > 0) {
@@ -157,8 +189,11 @@ export default function HomePage() {
       return;
     }
 
-    // Images: add to staging area
-    const newPages: StagedPage[] = images.map((file) => ({
+    // Convert any HEIC/HEIF files to JPEG via canvas before staging.
+    // iOS Safari can natively render HEIC, so this works on-device.
+    const converted = await Promise.all(imageFiles.map(convertToJpegIfNeeded));
+
+    const newPages: StagedPage[] = converted.map((file) => ({
       file,
       previewUrl: URL.createObjectURL(file),
     }));
@@ -391,7 +426,7 @@ export default function HomePage() {
         <input
           ref={fileInputRef}
           type="file"
-          accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.doc,.docx,.txt"
+          accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.heic,.heif,.doc,.docx,.txt"
           onChange={handleFileChange}
           style={{ display: "none" }}
         />

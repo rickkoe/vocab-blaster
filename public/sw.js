@@ -1,4 +1,4 @@
-const CACHE = "vocab-blaster-v2";
+const CACHE = "vocab-blaster-v3";
 
 // Pre-cache the app shell
 self.addEventListener("install", (event) => {
