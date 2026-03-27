@@ -4,9 +4,7 @@ import { useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Upload, FileText, Image, BookOpen, Zap, History } from "lucide-react";
-import { saveQuiz } from "@/lib/storage";
-import { generateId } from "@/lib/utils";
-import type { QuizData } from "@/lib/types";
+import { savePending } from "@/lib/storage";
 
 export default function HomePage() {
   const router = useRouter();
@@ -50,17 +48,13 @@ export default function HomePage() {
         throw new Error(data.error || "Failed to process file");
       }
 
-      const quiz: QuizData = {
-        id: generateId(),
+      savePending({
         title: data.title || "Vocabulary Quiz",
         rootInfo: data.rootInfo || "",
         words: data.words,
-        createdAt: new Date().toISOString(),
         sourceFileName: file.name,
-      };
-
-      saveQuiz(quiz);
-      router.push(`/quiz/${quiz.id}`);
+      });
+      router.push("/review");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
       setIsLoading(false);

@@ -101,6 +101,12 @@ body::before {
   background-clip: text;
 }
 
+/* Focus ring for review page inputs */
+input:focus, textarea:focus, select:focus {
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 3px rgba(108, 92, 231, 0.15);
+}
+
 .card-top-bar::before {
   content: '';
   position: absolute;
