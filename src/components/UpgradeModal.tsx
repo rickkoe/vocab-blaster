@@ -146,7 +146,7 @@ export default function UpgradeModal({ monthlyCount, onClose }: Props) {
             onMouseEnter={(e) => { if (!loading) (e.currentTarget as HTMLElement).style.transform = "scale(1.02)"; }}
             onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.transform = "scale(1)"; }}
           >
-            {loading === "monthly" ? "Redirecting..." : "Upgrade — $3.99 / month"}
+            {loading === "monthly" ? "Redirecting..." : "Upgrade — $1.99 / month"}
           </button>
           <button
             onClick={() => startCheckout(YEARLY_PRICE_ID, "yearly")}
@@ -165,7 +165,7 @@ export default function UpgradeModal({ monthlyCount, onClose }: Props) {
             onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--text)"; }}
             onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = "#777"; }}
           >
-            {loading === "yearly" ? "Redirecting..." : "$29.99 / year — save 37%"}
+            {loading === "yearly" ? "Redirecting..." : "$19.99 / year — save 37%"}
           </button>
           <button
             onClick={onClose}

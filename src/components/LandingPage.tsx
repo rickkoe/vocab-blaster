@@ -346,10 +346,10 @@ export default function LandingPage() {
               </span>
             </div>
             <div style={{ fontFamily: "'Fredoka One', cursive", fontSize: "2.6em", color: "var(--text)", lineHeight: 1 }}>
-              $3.99
+              $1.99
             </div>
             <div style={{ color: "#888", fontSize: "0.85em", margin: "2px 0 2px" }}>/ month</div>
-            <div style={{ color: "#555", fontSize: "0.78em", marginBottom: "26px" }}>or $29.99/year — save 37%</div>
+            <div style={{ color: "#555", fontSize: "0.78em", marginBottom: "26px" }}>or $19.99/year — save 16%</div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: "11px", marginBottom: "26px" }}>
               {[
@@ -386,7 +386,7 @@ export default function LandingPage() {
                 onMouseEnter={(e) => { if (!loadingPlan) (e.currentTarget as HTMLElement).style.transform = "scale(1.02)"; }}
                 onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.transform = "scale(1)"; }}
               >
-                {loadingPlan === "monthly" ? "Loading..." : "Upgrade — $3.99 / month"}
+                {loadingPlan === "monthly" ? "Loading..." : "Upgrade — $1.99 / month"}
               </button>
               <button
                 onClick={() => startCheckout(YEARLY_PRICE_ID, "yearly")}
@@ -405,7 +405,7 @@ export default function LandingPage() {
                 onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--text)"; }}
                 onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = "#777"; }}
               >
-                {loadingPlan === "yearly" ? "Loading..." : "$29.99 / year — save 37%"}
+                {loadingPlan === "yearly" ? "Loading..." : "$19.99 / year — save 16%"}
               </button>
             </div>
           </div>
