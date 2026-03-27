@@ -133,8 +133,23 @@ export default function HomePage() {
   const handleFiles = useCallback((files: File[]) => {
     if (files.length === 0) return;
 
-    const images = files.filter((f) => f.type.startsWith("image/"));
-    const nonImages = files.filter((f) => !f.type.startsWith("image/"));
+    // Detect HEIC/HEIF before staging — these can't be processed
+    const heicFile = files.find(
+      (f) =>
+        f.type === "image/heic" ||
+        f.type === "image/heif" ||
+        f.name.toLowerCase().endsWith(".heic") ||
+        f.name.toLowerCase().endsWith(".heif"),
+    );
+    if (heicFile) {
+      setError(
+        'Your photo is in HEIC format, which can\'t be processed. On your iPhone go to Settings → Camera → Formats and choose "Most Compatible", then try again.',
+      );
+      return;
+    }
+
+    const images = files.filter((f) => f.type.startsWith("image/") || f.type === "");
+    const nonImages = files.filter((f) => !f.type.startsWith("image/") && f.type !== "");
 
     // Non-images (PDF/doc/txt): process the first one immediately
     if (nonImages.length > 0) {

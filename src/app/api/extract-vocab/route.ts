@@ -36,10 +36,59 @@ This works with ANY vocabulary worksheet format:
 
 Always infer part of speech from context even if not stated. Generate 3 natural example sentences per word using ___ as the placeholder. Extract ALL words you can find — typically 5-20 words.`;
 
-export async function POST(req: NextRequest) {
-  try {
-    const formData = await req.formData();
+type SupportedImageType = "image/jpeg" | "image/png" | "image/gif" | "image/webp";
+const SUPPORTED_IMAGE_TYPES: SupportedImageType[] = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 
+/**
+ * Detects the real image format from magic bytes (file signature).
+ * Returns the MIME type if supported, "image/heic" if HEIC/HEIF, or "unknown".
+ */
+function detectImageType(buf: Buffer): SupportedImageType | "image/heic" | "unknown" {
+  if (buf.length < 12) return "unknown";
+  // JPEG: FF D8 FF
+  if (buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) return "image/jpeg";
+  // PNG: 89 50 4E 47
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) return "image/png";
+  // GIF: 47 49 46 38
+  if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x38) return "image/gif";
+  // WEBP: RIFF????WEBP
+  if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&
+      buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50) return "image/webp";
+  // HEIC/HEIF: ISO Base Media File Format — bytes 4-7 are "ftyp"
+  if (buf[4] === 0x66 && buf[5] === 0x74 && buf[6] === 0x79 && buf[7] === 0x70) return "image/heic";
+  return "unknown";
+}
+
+const HEIC_ERROR =
+  'Your photo is in HEIC format, which can\'t be processed. On your iPhone go to Settings → Camera → Formats and choose "Most Compatible" to shoot in JPEG, then try again.';
+
+/** Humanise cryptic SDK/API error messages into something useful. */
+function humaniseError(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (
+    msg.includes("did not match the expected pattern") ||
+    msg.includes("Invalid URL") ||
+    msg.includes("Could not process image") ||
+    msg.includes("invalid image")
+  ) {
+    return "The image could not be processed. Make sure your photo is in JPEG or PNG format and try again.";
+  }
+  return msg || "Failed to process file. Please try again.";
+}
+
+export async function POST(req: NextRequest) {
+  let formData: FormData;
+  try {
+    formData = await req.formData();
+  } catch (err) {
+    console.error("[extract-vocab] Failed to parse form data:", err);
+    return NextResponse.json(
+      { error: "Could not read the uploaded file. Please try again." },
+      { status: 400 },
+    );
+  }
+
+  try {
     // ── Quota check for logged-in users ──────────────────────
     const supabase = await createSupabaseClient();
     const { data: { user } } = await supabase.auth.getUser();
@@ -74,38 +123,55 @@ export async function POST(req: NextRequest) {
               error: `You've used all ${FREE_MONTHLY_LIMIT} free quizzes this month. Upgrade to Pro for unlimited access.`,
               upgradeRequired: true,
             },
-            { status: 402 }
+            { status: 402 },
           );
         }
       }
     }
     // ─────────────────────────────────────────────────────────
 
-    // Supported image types for the Anthropic API
-    const SUPPORTED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"] as const;
-    type SupportedImageType = typeof SUPPORTED_IMAGE_TYPES[number];
-    const toSupportedMime = (mime: string): SupportedImageType => {
-      if ((SUPPORTED_IMAGE_TYPES as readonly string[]).includes(mime)) return mime as SupportedImageType;
-      // HEIC/HEIF (iOS) and other formats → treat as JPEG (browser usually converts already)
-      return "image/jpeg";
-    };
-
-    // Multi-image path: staged pages sent as repeated "files" field
+    // ── Multi-image path: staged pages sent as repeated "files" field ──
     const multiFiles = formData.getAll("files") as File[];
     if (multiFiles.length > 0) {
-      const imageBlocks = await Promise.all(
-        multiFiles.map(async (f) => {
-          const bytes = await f.arrayBuffer();
-          return {
-            type: "image" as const,
-            source: {
-              type: "base64" as const,
-              media_type: toSupportedMime(f.type),
-              data: Buffer.from(bytes).toString("base64"),
-            },
-          };
-        })
-      );
+      console.log(`[extract-vocab] Multi-file upload: ${multiFiles.length} file(s)`);
+
+      const imageBlocks: Anthropic.ImageBlockParam[] = [];
+      for (const f of multiFiles) {
+        const bytes = await f.arrayBuffer();
+        const buf = Buffer.from(bytes);
+
+        console.log(`[extract-vocab] File: name=${f.name} declaredType=${f.type} size=${buf.length}`);
+
+        if (buf.length === 0) {
+          return NextResponse.json(
+            { error: "One of the uploaded files appears to be empty. Please try again." },
+            { status: 400 },
+          );
+        }
+
+        const detected = detectImageType(buf);
+        console.log(`[extract-vocab] Detected type: ${detected}`);
+
+        if (detected === "image/heic") {
+          return NextResponse.json({ error: HEIC_ERROR }, { status: 415 });
+        }
+
+        const mediaType: SupportedImageType =
+          detected !== "unknown" ? detected : (
+            (SUPPORTED_IMAGE_TYPES as string[]).includes(f.type)
+              ? f.type as SupportedImageType
+              : "image/jpeg"
+          );
+
+        imageBlocks.push({
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: mediaType,
+            data: buf.toString("base64"),
+          },
+        });
+      }
 
       const messages: Anthropic.MessageParam[] = [
         {
@@ -130,7 +196,7 @@ export async function POST(req: NextRequest) {
       const text = response.content[0].type === "text" ? response.content[0].text : "";
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
-        console.error("No JSON found in response:", text);
+        console.error("[extract-vocab] No JSON in multi-file response:", text);
         return NextResponse.json({ error: "Failed to extract vocabulary from file" }, { status: 500 });
       }
       const data = JSON.parse(jsonMatch[0]);
@@ -140,7 +206,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(data);
     }
 
-    // Single-file path
+    // ── Single-file path ──────────────────────────────────────────────
     const file = formData.get("file") as File | null;
 
     if (!file) {
@@ -152,10 +218,19 @@ export async function POST(req: NextRequest) {
     const mimeType = file.type;
     const fileName = file.name.toLowerCase();
 
+    console.log(`[extract-vocab] Single file: name=${file.name} declaredType=${mimeType} size=${buffer.length}`);
+
+    if (buffer.length === 0) {
+      return NextResponse.json(
+        { error: "The uploaded file appears to be empty. Please try again." },
+        { status: 400 },
+      );
+    }
+
     let messages: Anthropic.MessageParam[];
 
     const isPdf = mimeType === "application/pdf" || fileName.endsWith(".pdf");
-    const isImage = mimeType.startsWith("image/");
+    const isImage = mimeType.startsWith("image/") || (!mimeType && !fileName.endsWith(".pdf") && !fileName.endsWith(".doc") && !fileName.endsWith(".docx") && !fileName.endsWith(".txt"));
 
     if (isPdf) {
       messages = [
@@ -178,6 +253,20 @@ export async function POST(req: NextRequest) {
         },
       ];
     } else if (isImage) {
+      const detected = detectImageType(buffer);
+      console.log(`[extract-vocab] Single image detected type: ${detected}`);
+
+      if (detected === "image/heic") {
+        return NextResponse.json({ error: HEIC_ERROR }, { status: 415 });
+      }
+
+      const mediaType: SupportedImageType =
+        detected !== "unknown" ? detected : (
+          (SUPPORTED_IMAGE_TYPES as string[]).includes(mimeType)
+            ? mimeType as SupportedImageType
+            : "image/jpeg"
+        );
+
       messages = [
         {
           role: "user",
@@ -186,7 +275,7 @@ export async function POST(req: NextRequest) {
               type: "image" as const,
               source: {
                 type: "base64" as const,
-                media_type: toSupportedMime(mimeType),
+                media_type: mediaType,
                 data: buffer.toString("base64"),
               },
             },
@@ -198,7 +287,6 @@ export async function POST(req: NextRequest) {
         },
       ];
     } else if (fileName.endsWith(".docx") || fileName.endsWith(".doc")) {
-      // Extract text from Word doc
       const mammoth = await import("mammoth");
       const result = await mammoth.extractRawText({ buffer });
       messages = [
@@ -218,7 +306,7 @@ export async function POST(req: NextRequest) {
     } else {
       return NextResponse.json(
         { error: "Unsupported file type. Please upload a PDF, image, Word doc, or text file." },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -230,27 +318,20 @@ export async function POST(req: NextRequest) {
     });
 
     const text = response.content[0].type === "text" ? response.content[0].text : "";
-
-    // Parse JSON from response
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      console.error("No JSON found in response:", text);
+      console.error("[extract-vocab] No JSON in single-file response:", text);
       return NextResponse.json({ error: "Failed to extract vocabulary from file" }, { status: 500 });
     }
 
     const data = JSON.parse(jsonMatch[0]);
-
-    // Validate structure
     if (!data.words || !Array.isArray(data.words) || data.words.length === 0) {
       return NextResponse.json({ error: "No vocabulary words found in the file" }, { status: 422 });
     }
 
     return NextResponse.json(data);
   } catch (err) {
-    console.error("Extract vocab error:", err);
-    // Surface the actual API error message so it's debuggable
-    const message =
-      err instanceof Error ? err.message : "Failed to process file. Please try again.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[extract-vocab] Unhandled error:", err);
+    return NextResponse.json({ error: humaniseError(err) }, { status: 500 });
   }
 }
