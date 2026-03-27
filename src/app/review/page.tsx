@@ -2,10 +2,12 @@
 
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { Trash2, Plus, Check, ArrowLeft, AlertCircle } from "lucide-react";
-import { getPending, clearPending, saveQuiz } from "@/lib/storage";
-import { generateId } from "@/lib/utils";
+import { Trash2, Plus, Check, ArrowLeft, AlertCircle, LogIn } from "lucide-react";
+import { getPending, clearPending } from "@/lib/storage";
+import { saveQuiz } from "@/lib/supabase/quizzes";
+import { createClient } from "@/lib/supabase/client";
 import type { VocabWord } from "@/lib/types";
+import type { User } from "@supabase/supabase-js";
 
 const POS_OPTIONS = ["noun", "verb", "adjective", "adverb", "pronoun", "preposition", "conjunction", "interjection"];
 
@@ -29,6 +31,8 @@ export default function ReviewPage() {
   const [words, setWords] = useState<EditableWord[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [user, setUser] = useState<User | null>(null);
+  const [saving, setSaving] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -42,6 +46,9 @@ export default function ReviewPage() {
     setSourceFileName(pending.sourceFileName);
     setWords(pending.words.map((w, i) => makeEditable(w, i)));
     setLoaded(true);
+
+    // Check auth status (non-blocking)
+    createClient().auth.getUser().then(({ data }) => setUser(data.user));
   }, [router]);
 
   const updateWord = (id: string, field: keyof VocabWord, value: string) => {
@@ -73,29 +80,34 @@ export default function ReviewPage() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     if (!validate()) return;
+    if (!user) {
+      router.push("/auth/login?next=/review");
+      return;
+    }
 
-    const quiz = {
-      id: generateId(),
-      title: title.trim() || "Vocabulary Quiz",
-      rootInfo: rootInfo.trim(),
-      // Strip _id before saving
-      words: words.map(({ _id: _, ...w }) => ({
-        ...w,
-        word: w.word.trim(),
-        def: w.def.trim(),
-        short: w.short.trim() || w.def.split(" ").slice(0, 6).join(" "),
-        root: w.root.trim(),
-        pos: w.pos.trim() || "noun",
-      })),
-      createdAt: new Date().toISOString(),
-      sourceFileName,
-    };
-
-    clearPending();
-    saveQuiz(quiz);
-    router.push(`/quiz/${quiz.id}`);
+    setSaving(true);
+    try {
+      const saved = await saveQuiz({
+        title: title.trim() || "Vocabulary Quiz",
+        rootInfo: rootInfo.trim(),
+        words: words.map(({ _id: _, ...w }) => ({
+          ...w,
+          word: w.word.trim(),
+          def: w.def.trim(),
+          short: w.short.trim() || w.def.split(" ").slice(0, 6).join(" "),
+          root: w.root.trim(),
+          pos: w.pos.trim() || "noun",
+        })),
+        sourceFileName,
+      });
+      clearPending();
+      router.push(`/quiz/${saved.id}`);
+    } catch (err) {
+      setErrors({ _save: err instanceof Error ? err.message : "Failed to save quiz" });
+      setSaving(false);
+    }
   };
 
   if (!loaded) {
@@ -106,7 +118,7 @@ export default function ReviewPage() {
     );
   }
 
-  const hasErrors = Object.keys(errors).length > 0;
+  const hasErrors = Object.keys(errors).filter((k) => k !== "_save").length > 0;
 
   return (
     <main style={{ minHeight: "100vh", paddingBottom: "120px" }}>
@@ -212,10 +224,38 @@ export default function ReviewPage() {
               word{words.length !== 1 ? "s" : ""} ready to quiz
             </span>
           </div>
-          <ConfirmButton onClick={handleConfirm} hasErrors={hasErrors} wordCount={words.length} />
+          <ConfirmButton onClick={handleConfirm} hasErrors={hasErrors} wordCount={words.length} saving={saving} />
         </div>
 
-        {hasErrors && (
+        {/* Auth prompt — shown when not logged in */}
+        {loaded && !user && (
+          <div style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            gap: "12px", flexWrap: "wrap",
+            marginBottom: "16px", padding: "14px 18px",
+            background: "rgba(108,92,231,0.08)", border: "1px solid rgba(108,92,231,0.25)",
+            borderRadius: "14px",
+          }} className="animate-fade-up">
+            <span style={{ color: "#a0a0c0", fontSize: "0.9em" }}>
+              🔑 Sign in to save your quiz and play across devices.
+            </span>
+            <button
+              onClick={() => router.push("/auth/login?next=/review")}
+              style={{
+                display: "flex", alignItems: "center", gap: "6px",
+                padding: "8px 16px",
+                background: "var(--primary)", color: "white", border: "none",
+                borderRadius: "20px", cursor: "pointer",
+                fontFamily: "'Fredoka One', cursive", fontSize: "0.9em",
+                whiteSpace: "nowrap",
+              }}
+            >
+              <LogIn size={15} /> Sign In
+            </button>
+          </div>
+        )}
+
+        {(hasErrors || errors._save) && (
           <div style={{
             display: "flex", alignItems: "center", gap: "8px",
             marginBottom: "16px", padding: "12px 16px",
@@ -223,7 +263,7 @@ export default function ReviewPage() {
             borderRadius: "14px", color: "var(--danger)", fontSize: "0.9em", fontWeight: 700,
           }} className="animate-fade-up">
             <AlertCircle size={18} />
-            Fix the highlighted fields before continuing.
+            {errors._save ?? "Fix the highlighted fields before continuing."}
           </div>
         )}
 
@@ -285,7 +325,7 @@ export default function ReviewPage() {
         <span style={{ color: "#666", fontSize: "0.9em" }}>
           {words.length} word{words.length !== 1 ? "s" : ""}
         </span>
-        <ConfirmButton onClick={handleConfirm} hasErrors={hasErrors} wordCount={words.length} large />
+        <ConfirmButton onClick={handleConfirm} hasErrors={hasErrors} wordCount={words.length} saving={saving} large />
       </div>
     </main>
   );
@@ -294,14 +334,16 @@ export default function ReviewPage() {
 /* ─── Sub-components ─────────────────────────────────────── */
 
 function ConfirmButton({
-  onClick, hasErrors, wordCount, large = false,
+  onClick, hasErrors, wordCount, saving = false, large = false,
 }: {
   onClick: () => void;
   hasErrors: boolean;
   wordCount: number;
+  saving?: boolean;
   large?: boolean;
 }) {
-  const disabled = wordCount === 0;
+  const disabled = wordCount === 0 || saving;
+  void hasErrors; // validated before onClick fires
   return (
     <button
       onClick={onClick}
@@ -324,7 +366,7 @@ function ConfirmButton({
       onMouseLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; }}
     >
       <Check size={large ? 20 : 16} />
-      Confirm &amp; Build Quiz
+      {saving ? "Saving..." : "Confirm & Build Quiz"}
     </button>
   );
 }
