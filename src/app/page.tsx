@@ -80,8 +80,8 @@ export default function HomePage() {
   };
 
   return (
-    <main className="min-h-screen">
-      <div className="max-w-2xl mx-auto px-5 py-10">
+    <main style={{ minHeight: "100vh" }}>
+      <div style={{ maxWidth: "700px", margin: "0 auto", padding: "40px 20px" }}>
         {/* Header */}
         <div className="text-center mb-10">
           <h1
