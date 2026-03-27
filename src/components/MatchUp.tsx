@@ -164,7 +164,7 @@ export default function MatchUp({ quiz, onBack, onReplay }: Props) {
         onClick={onBack}
         style={{ background: "none", border: "none", color: "#888", fontSize: "1em", cursor: "pointer", padding: "8px 0", fontFamily: "'Nunito', sans-serif", fontWeight: 700 }}
       >
-        ← Back to modes
+        ← Modes
       </button>
 
       <div style={{ width: "100%", height: "8px", background: "rgba(255,255,255,0.08)", borderRadius: "10px", margin: "12px 0", overflow: "hidden" }}>

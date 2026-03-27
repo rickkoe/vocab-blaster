@@ -389,7 +389,7 @@ export default function ClassicQuiz({ quiz, mode, onBack, onReplay }: Props) {
           fontWeight: 700,
         }}
       >
-        ← Back to modes
+        ← Modes
       </button>
 
       {/* Progress bar */}

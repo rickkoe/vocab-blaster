@@ -2,14 +2,14 @@
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { FileText, BookOpen, Zap, History, Camera, Plus, X, ArrowRight } from "lucide-react";
+import { FileText, BookOpen, Zap, Camera, Plus, X, ArrowRight } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import { getUsageStatus, FREE_MONTHLY_LIMIT } from "@/lib/supabase/billing";
 import { savePending } from "@/lib/storage";
 import LandingPage from "@/components/LandingPage";
 import UpgradeModal from "@/components/UpgradeModal";
+import UserNav from "@/components/UserNav";
 
 interface StagedPage {
   file: File;
@@ -198,10 +198,11 @@ export default function HomePage() {
         />
       )}
 
-      <div style={{ maxWidth: "700px", margin: "0 auto", padding: "40px 20px" }}>
+      <div style={{ maxWidth: "700px", margin: "0 auto", padding: "20px 20px 40px" }}>
+        <UserNav />
 
         {/* Header */}
-        <div style={{ textAlign: "center", marginBottom: "36px" }}>
+        <div style={{ textAlign: "center", marginBottom: "36px", marginTop: "20px" }}>
           <h1
             className="animate-title-glow"
             style={{
@@ -349,7 +350,7 @@ export default function HomePage() {
                 {[
                   { icon: "🎯", name: "Classic Quiz" },
                   { icon: "🔄", name: "Reverse" },
-                  { icon: "⌨️", name: "Spell It" },
+                  { icon: "📝", name: "Fill in Blank" },
                   { icon: "🧩", name: "Match Up" },
                   { icon: "⚡", name: "Speed Round" },
                   { icon: "📖", name: "Study Cards" },
@@ -368,18 +369,6 @@ export default function HomePage() {
               </div>
             </div>
 
-            <div style={{ textAlign: "center", marginTop: "28px" }}>
-              <Link href="/history" style={{
-                display: "inline-flex", alignItems: "center", gap: "8px",
-                color: "#666", textDecoration: "none", fontSize: "0.9em", fontWeight: 700,
-              }}
-                onMouseEnter={(e) => (e.currentTarget.style.color = "var(--text)")}
-                onMouseLeave={(e) => (e.currentTarget.style.color = "#666")}
-              >
-                <History size={16} />
-                View past quizzes
-              </Link>
-            </div>
           </>
         )}
 

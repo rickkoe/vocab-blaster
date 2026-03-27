@@ -56,29 +56,27 @@ export default function QuizPage() {
   return (
     <main style={{ minHeight: "100vh" }}>
       <div style={{ maxWidth: "800px", margin: "0 auto", padding: "20px" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <UserNav />
-          {/* Sound mute toggle */}
+        <UserNav rightExtra={
           <button
             onClick={toggleMute}
             title={muted ? "Unmute sounds" : "Mute sounds"}
             style={{
               background: "none",
-              border: "1px solid rgba(255,255,255,0.1)",
-              borderRadius: "10px",
-              padding: "6px 12px",
+              border: "1px solid rgba(255,255,255,0.08)",
+              borderRadius: "8px",
+              padding: "7px 10px",
               color: muted ? "#555" : "var(--secondary)",
               cursor: "pointer",
-              fontSize: "1.1em",
+              fontSize: "1em",
               transition: "all 0.2s",
               flexShrink: 0,
             }}
-            onMouseEnter={(e) => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.25)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)"; }}
+            onMouseEnter={(e) => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.2)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)"; }}
           >
             {muted ? "🔇" : "🔊"}
           </button>
-        </div>
+        } />
 
         {/* Header */}
         <div style={{ textAlign: "center", padding: "30px 0 20px" }}>

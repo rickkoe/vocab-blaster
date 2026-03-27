@@ -29,7 +29,7 @@ export default function StudyCards({ quiz, onBack }: Props) {
         onClick={onBack}
         style={{ background: "none", border: "none", color: "#888", fontSize: "1em", cursor: "pointer", padding: "8px 0", fontFamily: "'Nunito', sans-serif", fontWeight: 700 }}
       >
-        ← Back to modes
+        ← Modes
       </button>
 
       <h2 style={{
