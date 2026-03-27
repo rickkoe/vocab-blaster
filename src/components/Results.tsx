@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import type { GameResult } from "@/lib/types";
+import type { GameResult, VocabWord } from "@/lib/types";
 import { scoreEmoji } from "@/lib/utils";
 import { updateStats } from "@/lib/storage";
 import { playCelebration } from "@/lib/sounds";
@@ -10,6 +10,8 @@ interface Props {
   result: GameResult;
   onPlayAgain: () => void;
   onBack: () => void;
+  missedWords?: VocabWord[];
+  onPracticeMissed?: (words: VocabWord[]) => void;
 }
 
 function launchConfetti() {
@@ -21,7 +23,7 @@ function launchConfetti() {
   });
 }
 
-export default function Results({ result, onPlayAgain, onBack }: Props) {
+export default function Results({ result, onPlayAgain, onBack, missedWords, onPracticeMissed }: Props) {
   const pct = Math.round((result.correct / result.total) * 100);
   const { emoji, title } = scoreEmoji(pct);
 
@@ -98,43 +100,65 @@ export default function Results({ result, onPlayAgain, onBack }: Props) {
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: "12px", justifyContent: "center", marginTop: "25px" }}>
-        <button
-          onClick={onPlayAgain}
-          style={{
-            padding: "16px 40px",
-            fontFamily: "'Fredoka One', cursive",
-            fontSize: "1.2em",
-            background: "linear-gradient(135deg, var(--secondary), #00b894)",
-            color: "white",
-            border: "none",
-            borderRadius: "50px",
-            cursor: "pointer",
-            transition: "all 0.3s",
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.transform = "scale(1.06)"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; }}
-        >
-          Play Again
-        </button>
-        <button
-          onClick={onBack}
-          style={{
-            padding: "16px 30px",
-            fontFamily: "'Fredoka One', cursive",
-            fontSize: "1.1em",
-            background: "rgba(255,255,255,0.06)",
-            color: "var(--text)",
-            border: "1px solid rgba(255,255,255,0.12)",
-            borderRadius: "50px",
-            cursor: "pointer",
-            transition: "all 0.3s",
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.1)"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; }}
-        >
-          Choose Mode
-        </button>
+      <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginTop: "25px" }}>
+        {missedWords && missedWords.length > 0 && onPracticeMissed && (
+          <button
+            onClick={() => onPracticeMissed(missedWords)}
+            style={{
+              padding: "16px",
+              fontFamily: "'Fredoka One', cursive",
+              fontSize: "1.1em",
+              background: "linear-gradient(135deg, var(--danger), #e17055aa)",
+              color: "white",
+              border: "none",
+              borderRadius: "50px",
+              cursor: "pointer",
+              transition: "all 0.3s",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.transform = "scale(1.04)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; }}
+          >
+            Practice {missedWords.length} Missed →
+          </button>
+        )}
+        <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
+          <button
+            onClick={onPlayAgain}
+            style={{
+              padding: "16px 40px",
+              fontFamily: "'Fredoka One', cursive",
+              fontSize: "1.2em",
+              background: "linear-gradient(135deg, var(--secondary), #00b894)",
+              color: "white",
+              border: "none",
+              borderRadius: "50px",
+              cursor: "pointer",
+              transition: "all 0.3s",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.transform = "scale(1.06)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; }}
+          >
+            Play Again
+          </button>
+          <button
+            onClick={onBack}
+            style={{
+              padding: "16px 30px",
+              fontFamily: "'Fredoka One', cursive",
+              fontSize: "1.1em",
+              background: "rgba(255,255,255,0.06)",
+              color: "var(--text)",
+              border: "1px solid rgba(255,255,255,0.12)",
+              borderRadius: "50px",
+              cursor: "pointer",
+              transition: "all 0.3s",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.1)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; }}
+          >
+            Choose Mode
+          </button>
+        </div>
       </div>
     </div>
   );

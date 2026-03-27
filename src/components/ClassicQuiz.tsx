@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import type { QuizData, GameMode, GameResult } from "@/lib/types";
+import type { QuizData, GameMode, GameResult, VocabWord } from "@/lib/types";
 import { shuffle, pickRandom } from "@/lib/utils";
 import { playCorrect, playWrong, playStreak, playTimerWarning } from "@/lib/sounds";
 import Results from "./Results";
@@ -13,6 +13,7 @@ interface Question {
   context: string;
   answer: string;
   options: string[];
+  vocabWord: VocabWord;
 }
 
 interface Props {
@@ -22,10 +23,10 @@ interface Props {
   onReplay: () => void;
 }
 
-function buildQuestion(quiz: QuizData, mode: Props["mode"]): Question[] {
-  return shuffle(quiz.words).map((v) => {
+function buildQuestions(words: VocabWord[], allWords: VocabWord[], mode: Props["mode"]): Question[] {
+  return shuffle(words).map((v) => {
     if (mode === "classic" || mode === "speed") {
-      const wrong = pickRandom(quiz.words.filter((x) => x.word !== v.word), 3).map((x) => x.def);
+      const wrong = pickRandom(allWords.filter((x) => x.word !== v.word), 3).map((x) => x.def);
       return {
         word: v.word,
         pos: v.pos,
@@ -33,10 +34,11 @@ function buildQuestion(quiz: QuizData, mode: Props["mode"]): Question[] {
         context: v.sentences?.[Math.floor(Math.random() * (v.sentences?.length ?? 1))] ?? "",
         answer: v.def,
         options: shuffle([v.def, ...wrong]),
+        vocabWord: v,
       };
     } else {
       // reverse
-      const wrong = pickRandom(quiz.words.filter((x) => x.word !== v.word), 3).map((x) => x.word);
+      const wrong = pickRandom(allWords.filter((x) => x.word !== v.word), 3).map((x) => x.word);
       return {
         word: v.word,
         pos: v.pos,
@@ -44,82 +46,156 @@ function buildQuestion(quiz: QuizData, mode: Props["mode"]): Question[] {
         context: "Which word matches this definition?",
         answer: v.word,
         options: shuffle([v.word, ...wrong]),
+        vocabWord: v,
       };
     }
   });
 }
 
 export default function ClassicQuiz({ quiz, mode, onBack, onReplay }: Props) {
-  const [questions] = useState(() => buildQuestion(quiz, mode));
+  const isSpeed = mode === "speed";
+
+  const [questions, setQuestions] = useState<Question[]>(() => buildQuestions(quiz.words, quiz.words, mode));
+  // answers[i] = chosen option string, or null if not yet answered
+  const [answers, setAnswers] = useState<(string | null)[]>(() => new Array(quiz.words.length).fill(null));
+  // currentQ = which question is displayed (may be behind activeQ for review)
   const [currentQ, setCurrentQ] = useState(0);
-  const [answered, setAnswered] = useState<string | null>(null);
+  // activeQ = the frontier question (next one to answer)
+  const [activeQ, setActiveQ] = useState(0);
   const [score, setScore] = useState(0);
   const [wrong, setWrong] = useState(0);
   const [streak, setStreak] = useState(0);
   const [bestStreak, setBestStreak] = useState(0);
-  const [feedback, setFeedback] = useState<{ text: string; correct: boolean } | null>(null);
   const [result, setResult] = useState<GameResult | null>(null);
+  const [showReview, setShowReview] = useState(false);
   const [timeLeft, setTimeLeft] = useState(8000);
+
+  // Refs for timer — avoids stale closure issues in setInterval
+  const scoreRef = useRef(0);
+  const wrongRef = useRef(0);
+  const streakRef = useRef(0);
+  const bestStreakRef = useRef(0);
+  const activeQRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastTickRef = useRef<number>(Date.now());
-  const warnedRef = useRef(false); // tracks whether timer warning has fired this question
-  const isSpeed = mode === "speed";
+  const warnedRef = useRef(false);
 
-  const endGame = useCallback((finalScore: number, finalWrong: number, finalBestStreak: number) => {
+  const syncRefs = (s: number, w: number, st: number, bs: number, aq: number) => {
+    scoreRef.current = s;
+    wrongRef.current = w;
+    streakRef.current = st;
+    bestStreakRef.current = bs;
+    activeQRef.current = aq;
+  };
+
+  const resetWithWords = useCallback((words: VocabWord[]) => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    const qs = buildQuestions(words, quiz.words, mode);
+    setQuestions(qs);
+    setAnswers(new Array(qs.length).fill(null));
+    setCurrentQ(0);
+    setActiveQ(0);
+    setScore(0);
+    setWrong(0);
+    setStreak(0);
+    setBestStreak(0);
+    setResult(null);
+    setShowReview(false);
+    setTimeLeft(8000);
+    syncRefs(0, 0, 0, 0, 0);
+  }, [quiz.words, mode]);
+
+  const endGame = useCallback((finalScore: number, finalWrong: number, finalBestStreak: number, total: number) => {
     if (timerRef.current) clearInterval(timerRef.current);
     setResult({
       correct: finalScore,
       wrong: finalWrong,
       bestStreak: finalBestStreak,
-      total: questions.length,
+      total,
       mode,
     });
-  }, [questions.length, mode]);
+  }, [mode]);
 
-  const handleAnswer = useCallback((opt: string, currentScore: number, currentWrong: number, currentStreak: number, currentBestStreak: number) => {
+  const handleAnswer = useCallback((
+    opt: string,
+    curScore: number,
+    curWrong: number,
+    curStreak: number,
+    curBestStreak: number,
+    qIndex: number,
+    qs: Question[],
+  ) => {
     if (timerRef.current) clearInterval(timerRef.current);
-    const q = questions[currentQ];
-    const isCorrect = opt === q.answer;
-    setAnswered(opt);
 
-    let newScore = currentScore;
-    let newWrong = currentWrong;
-    let newStreak = currentStreak;
-    let newBestStreak = currentBestStreak;
+    const q = qs[qIndex];
+    const isCorrect = opt !== "__timeout__" && opt === q.answer;
+
+    let newScore = curScore;
+    let newWrong = curWrong;
+    let newStreak = curStreak;
+    let newBestStreak = curBestStreak;
 
     if (isCorrect) {
       newScore += 1;
       newStreak += 1;
       if (newStreak > newBestStreak) newBestStreak = newStreak;
-      setFeedback({ text: "✅ Correct!", correct: true });
       if (newStreak >= 3) playStreak(); else playCorrect();
     } else {
       newWrong += 1;
       newStreak = 0;
-      setFeedback({ text: `❌ The answer was: "${q.answer}"`, correct: false });
       playWrong();
     }
 
+    setAnswers((prev) => {
+      const next = [...prev];
+      next[qIndex] = opt;
+      return next;
+    });
     setScore(newScore);
     setWrong(newWrong);
     setStreak(newStreak);
     setBestStreak(newBestStreak);
+    syncRefs(newScore, newWrong, newStreak, newBestStreak, qIndex);
 
-    setTimeout(() => {
-      if (currentQ + 1 >= questions.length) {
-        endGame(newScore, newWrong, newBestStreak);
+    // Speed mode: auto-advance after 1500ms
+    if (isSpeed) {
+      setTimeout(() => {
+        if (qIndex + 1 >= qs.length) {
+          endGame(newScore, newWrong, newBestStreak, qs.length);
+        } else {
+          setActiveQ(qIndex + 1);
+          setCurrentQ(qIndex + 1);
+          activeQRef.current = qIndex + 1;
+          setTimeLeft(8000);
+        }
+      }, 1500);
+    }
+  }, [isSpeed, endGame]);
+
+  // Manual next: advance display or frontier
+  const handleNext = useCallback(() => {
+    if (currentQ < activeQ) {
+      setCurrentQ(currentQ + 1);
+    } else if (answers[activeQ] !== null) {
+      // Advance frontier
+      if (activeQ + 1 >= questions.length) {
+        setShowReview(true);
       } else {
-        setCurrentQ((q) => q + 1);
-        setAnswered(null);
-        setFeedback(null);
-        setTimeLeft(8000);
+        const next = activeQ + 1;
+        setActiveQ(next);
+        setCurrentQ(next);
+        activeQRef.current = next;
       }
-    }, 1200);
-  }, [currentQ, questions, endGame]);
+    }
+  }, [currentQ, activeQ, answers, questions.length]);
+
+  const handlePrev = useCallback(() => {
+    if (currentQ > 0) setCurrentQ(currentQ - 1);
+  }, [currentQ]);
 
   // Speed timer
   useEffect(() => {
-    if (!isSpeed || answered !== null || result !== null) return;
+    if (!isSpeed || result !== null) return;
 
     lastTickRef.current = Date.now();
     warnedRef.current = false;
@@ -132,14 +208,21 @@ export default function ClassicQuiz({ quiz, mode, onBack, onReplay }: Props) {
 
       setTimeLeft((prev) => {
         const next = prev - elapsed;
-        // Play warning once when under 2 seconds
         if (next <= 2000 && prev > 2000 && !warnedRef.current) {
           warnedRef.current = true;
           playTimerWarning();
         }
         if (next <= 0) {
           clearInterval(timerRef.current!);
-          handleAnswer("__timeout__", score, wrong, streak, bestStreak);
+          handleAnswer(
+            "__timeout__",
+            scoreRef.current,
+            wrongRef.current,
+            streakRef.current,
+            bestStreakRef.current,
+            activeQRef.current,
+            questions,
+          );
           return 0;
         }
         return next;
@@ -148,15 +231,148 @@ export default function ClassicQuiz({ quiz, mode, onBack, onReplay }: Props) {
 
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentQ, isSpeed]);
+  }, [activeQ, isSpeed]);
 
+  // ── Render: final results ──────────────────────────────────────────
   if (result) {
-    return <Results result={result} onPlayAgain={onReplay} onBack={onBack} />;
+    const missedWords = questions
+      .filter((q, i) => answers[i] !== q.answer)
+      .map((q) => q.vocabWord);
+
+    return (
+      <Results
+        result={result}
+        onPlayAgain={onReplay}
+        onBack={onBack}
+        missedWords={missedWords.length > 0 ? missedWords : undefined}
+        onPracticeMissed={missedWords.length > 0 ? () => resetWithWords(missedWords) : undefined}
+      />
+    );
   }
 
+  // ── Render: end-of-quiz review (non-speed only) ────────────────────
+  if (showReview) {
+    const missedCount = questions.filter((q, i) => answers[i] !== q.answer).length;
+    const missedWords = questions
+      .filter((q, i) => answers[i] !== q.answer)
+      .map((q) => q.vocabWord);
+
+    return (
+      <div className="animate-fade-up">
+        <div style={{
+          fontFamily: "'Fredoka One', cursive",
+          fontSize: "1.6em",
+          color: "var(--text)",
+          marginBottom: "6px",
+          textAlign: "center",
+        }}>
+          Quiz Review
+        </div>
+        <div style={{ color: "#a0a0c0", fontSize: "0.9em", textAlign: "center", marginBottom: "20px" }}>
+          {score} of {questions.length} correct
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "24px" }}>
+          {questions.map((q, i) => {
+            const chosen = answers[i];
+            const isCorrect = chosen === q.answer;
+            return (
+              <div
+                key={i}
+                style={{
+                  background: isCorrect ? "rgba(0,184,148,0.08)" : "rgba(225,112,85,0.08)",
+                  border: `1.5px solid ${isCorrect ? "rgba(0,184,148,0.3)" : "rgba(225,112,85,0.3)"}`,
+                  borderRadius: "16px",
+                  padding: "14px 18px",
+                }}
+              >
+                <div style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: "10px",
+                }}>
+                  <span style={{ fontSize: "1.2em", flexShrink: 0, lineHeight: 1.3 }}>
+                    {isCorrect ? "✅" : "❌"}
+                  </span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{
+                      fontWeight: 700,
+                      fontSize: "1em",
+                      color: "var(--text)",
+                      marginBottom: "2px",
+                    }}>
+                      {mode === "reverse" ? `"${q.prompt}"` : q.prompt}
+                    </div>
+                    {!isCorrect && (
+                      <>
+                        <div style={{ fontSize: "0.82em", color: "var(--danger)", marginBottom: "2px" }}>
+                          Your answer: {chosen === "__timeout__" ? "⏱ Timed out" : chosen ?? "—"}
+                        </div>
+                        <div style={{ fontSize: "0.82em", color: "var(--success)" }}>
+                          Correct: {q.answer}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+          {missedCount > 0 && (
+            <button
+              onClick={() => resetWithWords(missedWords)}
+              style={{
+                padding: "16px",
+                background: "linear-gradient(135deg, var(--danger), #e17055aa)",
+                color: "white",
+                border: "none",
+                borderRadius: "50px",
+                fontFamily: "'Fredoka One', cursive",
+                fontSize: "1.1em",
+                cursor: "pointer",
+                transition: "transform 0.2s",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.transform = "scale(1.03)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; }}
+            >
+              Practice {missedCount} Missed →
+            </button>
+          )}
+          <button
+            onClick={() => endGame(score, wrong, bestStreak, questions.length)}
+            style={{
+              padding: "14px",
+              background: "linear-gradient(135deg, var(--secondary), #00b894)",
+              color: "white",
+              border: "none",
+              borderRadius: "50px",
+              fontFamily: "'Fredoka One', cursive",
+              fontSize: "1.05em",
+              cursor: "pointer",
+              transition: "transform 0.2s",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.transform = "scale(1.03)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; }}
+          >
+            See Results →
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Render: question ───────────────────────────────────────────────
   const q = questions[currentQ];
+  const currentAnswer = answers[currentQ];
+  const isReadOnly = currentQ < activeQ; // viewing a past question
+  const hasAnswered = currentAnswer !== null;
   const LETTERS = ["A", "B", "C", "D"];
-  const progress = (currentQ / questions.length) * 100;
+  const progress = (activeQ / questions.length) * 100;
+  const canGoNext = isReadOnly || hasAnswered;
+  const canGoPrev = currentQ > 0;
 
   return (
     <div>
@@ -230,12 +446,14 @@ export default function ClassicQuiz({ quiz, mode, onBack, onReplay }: Props) {
           position: "absolute",
           top: 0, left: 0, right: 0,
           height: "4px",
-          background: "linear-gradient(90deg, var(--primary), var(--secondary), var(--accent))",
+          background: isReadOnly
+            ? "linear-gradient(90deg, #555, #777)"
+            : "linear-gradient(90deg, var(--primary), var(--secondary), var(--accent))",
         }} />
 
         <div style={{
           fontSize: "0.85em",
-          color: "var(--secondary)",
+          color: isReadOnly ? "#666" : "var(--secondary)",
           fontWeight: 700,
           textTransform: "uppercase",
           letterSpacing: "2px",
@@ -243,6 +461,7 @@ export default function ClassicQuiz({ quiz, mode, onBack, onReplay }: Props) {
         }}>
           Question {currentQ + 1} of {questions.length}
           {isSpeed && ` • ⚡ Speed Round`}
+          {isReadOnly && " • Review"}
         </div>
 
         {q.context && (
@@ -276,7 +495,7 @@ export default function ClassicQuiz({ quiz, mode, onBack, onReplay }: Props) {
         {/* Options */}
         <div style={{ display: "grid", gap: "12px", marginTop: "8px" }}>
           {q.options.map((opt, i) => {
-            const isSelected = answered === opt;
+            const isSelected = currentAnswer === opt;
             const isCorrect = opt === q.answer;
             let bg = "rgba(255,255,255,0.04)";
             let border = "2px solid rgba(255,255,255,0.1)";
@@ -284,34 +503,34 @@ export default function ClassicQuiz({ quiz, mode, onBack, onReplay }: Props) {
             let letterColor = "var(--primary)";
             let animClass = "";
 
-            if (answered !== null) {
+            if (hasAnswered) {
               if (isCorrect) {
                 bg = "rgba(0,184,148,0.15)";
                 border = "2px solid var(--success)";
                 letterBg = "var(--success)";
                 letterColor = "white";
-                animClass = "animate-correct-pop";
+                if (!isReadOnly) animClass = "animate-correct-pop";
               } else if (isSelected && !isCorrect) {
                 bg = "rgba(225,112,85,0.15)";
                 border = "2px solid var(--danger)";
                 letterBg = "var(--danger)";
                 letterColor = "white";
-                animClass = "animate-shake";
+                if (!isReadOnly) animClass = "animate-shake";
               }
             }
 
             return (
               <button
                 key={opt}
-                disabled={answered !== null}
-                onClick={() => handleAnswer(opt, score, wrong, streak, bestStreak)}
+                disabled={hasAnswered || isReadOnly}
+                onClick={() => handleAnswer(opt, score, wrong, streak, bestStreak, currentQ, questions)}
                 className={animClass}
                 style={{
                   background: bg,
                   border,
                   borderRadius: "16px",
                   padding: "16px 20px",
-                  cursor: answered !== null ? "default" : "pointer",
+                  cursor: hasAnswered || isReadOnly ? "default" : "pointer",
                   fontSize: "1.05em",
                   color: "var(--text)",
                   textAlign: "left",
@@ -320,17 +539,17 @@ export default function ClassicQuiz({ quiz, mode, onBack, onReplay }: Props) {
                   alignItems: "center",
                   gap: "12px",
                   transition: "all 0.25s",
-                  opacity: answered !== null && !isCorrect && !isSelected ? 0.5 : 1,
+                  opacity: hasAnswered && !isCorrect && !isSelected ? 0.5 : 1,
                 }}
                 onMouseEnter={(e) => {
-                  if (answered === null) {
+                  if (!hasAnswered && !isReadOnly) {
                     e.currentTarget.style.borderColor = "var(--primary)";
                     e.currentTarget.style.background = "rgba(108,92,231,0.1)";
                     e.currentTarget.style.transform = "translateX(6px)";
                   }
                 }}
                 onMouseLeave={(e) => {
-                  if (answered === null) {
+                  if (!hasAnswered && !isReadOnly) {
                     e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)";
                     e.currentTarget.style.background = "rgba(255,255,255,0.04)";
                     e.currentTarget.style.transform = "translateX(0)";
@@ -359,29 +578,90 @@ export default function ClassicQuiz({ quiz, mode, onBack, onReplay }: Props) {
           })}
         </div>
 
-        {/* Feedback */}
-        {feedback && (
+        {/* Feedback banner (non-speed) */}
+        {hasAnswered && !isSpeed && (
           <div style={{
             marginTop: "18px",
             padding: "16px 20px",
             borderRadius: "16px",
             fontWeight: 700,
-            fontSize: "1.1em",
-            background: feedback.correct ? "rgba(0,184,148,0.12)" : "rgba(225,112,85,0.12)",
-            color: feedback.correct ? "var(--success)" : "var(--danger)",
-            border: `1px solid ${feedback.correct ? "rgba(0,184,148,0.3)" : "rgba(225,112,85,0.3)"}`,
-          }} className="animate-fade-up">
-            {feedback.text}
+            fontSize: "1em",
+            background: currentAnswer === q.answer
+              ? "rgba(0,184,148,0.12)"
+              : "rgba(225,112,85,0.12)",
+            color: currentAnswer === q.answer ? "var(--success)" : "var(--danger)",
+            border: `1px solid ${currentAnswer === q.answer ? "rgba(0,184,148,0.3)" : "rgba(225,112,85,0.3)"}`,
+          }} className={isReadOnly ? "" : "animate-fade-up"}>
+            {currentAnswer === q.answer
+              ? "✅ Correct!"
+              : `❌ The answer was: "${q.answer}"`}
           </div>
         )}
 
         {/* Streak display */}
-        {streak >= 2 && (
+        {streak >= 2 && currentQ === activeQ && !isReadOnly && (
           <div style={{ marginTop: "10px", color: "var(--accent)", fontWeight: 700, fontSize: "0.9em" }}>
             🔥 {streak} streak!
           </div>
         )}
       </div>
+
+      {/* Navigation row */}
+      {!isSpeed && (
+        <div style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginTop: "14px",
+          gap: "10px",
+        }}>
+          <button
+            onClick={handlePrev}
+            disabled={!canGoPrev}
+            style={{
+              padding: "12px 22px",
+              background: "rgba(255,255,255,0.05)",
+              border: "1px solid rgba(255,255,255,0.1)",
+              borderRadius: "50px",
+              color: canGoPrev ? "#a0a0c0" : "transparent",
+              fontFamily: "'Fredoka One', cursive",
+              fontSize: "1em",
+              cursor: canGoPrev ? "pointer" : "default",
+              transition: "all 0.2s",
+              pointerEvents: canGoPrev ? "auto" : "none",
+            }}
+            onMouseEnter={(e) => { if (canGoPrev) e.currentTarget.style.background = "rgba(255,255,255,0.1)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; }}
+          >
+            ← Previous
+          </button>
+
+          <button
+            onClick={handleNext}
+            disabled={!canGoNext}
+            style={{
+              padding: "12px 28px",
+              background: canGoNext
+                ? "linear-gradient(135deg, var(--primary), #8b5cf6)"
+                : "rgba(255,255,255,0.05)",
+              border: canGoNext ? "none" : "1px solid rgba(255,255,255,0.1)",
+              borderRadius: "50px",
+              color: canGoNext ? "white" : "#555",
+              fontFamily: "'Fredoka One', cursive",
+              fontSize: "1em",
+              cursor: canGoNext ? "pointer" : "default",
+              transition: "all 0.2s",
+              boxShadow: canGoNext ? "0 3px 14px rgba(108,92,231,0.35)" : "none",
+            }}
+            onMouseEnter={(e) => { if (canGoNext) e.currentTarget.style.transform = "scale(1.04)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; }}
+          >
+            {currentQ === activeQ && hasAnswered && activeQ + 1 >= questions.length
+              ? "Review Answers →"
+              : "Next →"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
