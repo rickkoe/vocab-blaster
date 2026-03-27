@@ -1,7 +1,26 @@
-import type { QuizData, QuizStats } from "./types";
+import type { QuizData, QuizStats, PendingQuizData } from "./types";
 
 const QUIZZES_KEY = "vb_quizzes";
 const STATS_KEY = "vb_stats";
+const PENDING_KEY = "vb_pending";
+
+export function savePending(data: PendingQuizData): void {
+  localStorage.setItem(PENDING_KEY, JSON.stringify(data));
+}
+
+export function getPending(): PendingQuizData | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(PENDING_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearPending(): void {
+  localStorage.removeItem(PENDING_KEY);
+}
 
 export function saveQuiz(quiz: QuizData): void {
   const quizzes = getQuizzes();

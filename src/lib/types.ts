@@ -16,6 +16,13 @@ export interface QuizData {
   sourceFileName?: string;
 }
 
+export interface PendingQuizData {
+  title: string;
+  rootInfo: string;
+  words: VocabWord[];
+  sourceFileName?: string;
+}
+
 export type GameMode = "classic" | "reverse" | "spell" | "match" | "speed" | "study";
 
 export interface QuizStats {
